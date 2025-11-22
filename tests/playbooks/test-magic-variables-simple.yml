@@ -1,0 +1,40 @@
+---
+# 简化的魔法变量测试
+- name: Test Magic Variables Simple
+  hosts: all
+  tasks:
+    # 测试 1: 基本变量
+    - name: Show basic vars
+      debug:
+        msg: "Host={{ inventory_hostname }}, Address={{ ansible_host }}"
+
+    # 测试 2: group_names
+    - name: Show my groups
+      debug:
+        var: group_names
+
+    # 测试 3: groups 字典
+    - name: Show all groups
+      debug:
+        var: groups
+
+    # 测试 4: ansible_play_hosts
+    - name: Show play hosts
+      debug:
+        var: ansible_play_hosts
+
+    # 测试 5: 注册变量然后访问
+    - name: Set a fact
+      set_fact:
+        test_value: "from_{{ inventory_hostname }}"
+
+    # 测试 6: 在 target2 上访问 target1 的变量
+    - name: Access target1 vars from target2
+      debug:
+        msg: "Target1's test_value is: {{ hostvars['target1']['test_value'] }}"
+      when: inventory_hostname == "target2"
+
+    # 测试 7: 显示一个组的成员
+    - name: Show webservers members
+      debug:
+        var: groups['webservers']

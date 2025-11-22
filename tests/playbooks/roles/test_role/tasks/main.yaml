@@ -1,0 +1,22 @@
+---
+- name: Show role default variable
+  debug:
+    msg: "Default var: {{ role_default_var }}"
+
+- name: Show role variable
+  debug:
+    msg: "Role var: {{ role_var }}"
+
+- name: Show role message
+  debug:
+    msg: "{{ role_message }}"
+
+- name: Create a file from role
+  shell: echo "Role task executed" > /tmp/role_test.txt
+  register: role_result
+  changed_when: true
+  notify: Role handler
+
+- name: Show inventory hostname
+  debug:
+    msg: "Running on {{ inventory_hostname }}"

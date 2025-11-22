@@ -1,0 +1,65 @@
+---
+# 魔法变量完整测试
+- name: Test All Magic Variables
+  hosts: all
+  vars:
+    test_var: "play_value"
+  tasks:
+    - name: Test 1 - inventory_hostname
+      debug:
+        msg: "I am {{ inventory_hostname }}"
+
+    - name: Test 2 - ansible_host
+      debug:
+        msg: "My IP is {{ ansible_host }}"
+
+    - name: Test 3 - group_names
+      debug:
+        msg: "I belong to: {{ group_names | join(', ') }}"
+
+    - name: Test 4 - Check if in webservers group
+      debug:
+        msg: "Yes, I'm a webserver!"
+      when: "'webservers' in group_names"
+
+    - name: Test 5 - ansible_play_hosts
+      debug:
+        msg: "Total hosts in this play: {{ ansible_play_hosts | length }}"
+
+    - name: Test 6 - List all webservers
+      debug:
+        msg: "Webservers are: {{ groups.webservers | join(', ') }}"
+      when: inventory_hostname == "target1"
+
+    - name: Test 7 - Register facts
+      set_fact:
+        my_value: "I am {{ inventory_hostname }}"
+        my_port: "{{ 8000 + groups.webservers.index(inventory_hostname) if inventory_hostname in groups.webservers else 9000 }}"
+
+    - name: Test 8 - Access hostvars from target1
+      debug:
+        msg: "target2's value: {{ hostvars['target2']['my_value'] }}"
+      when: inventory_hostname == "target1"
+
+    - name: Test 9 - Build hosts file using magic variables
+      debug:
+        msg: |
+          # Hosts file for {{ inventory_hostname }}
+          127.0.0.1 localhost
+          {% for host in ansible_play_hosts %}
+          {{ hostvars[host]['ansible_host'] }} {{ host }}
+          {% endfor %}
+      when: inventory_hostname == "target1"
+
+    - name: Test 10 - Summary
+      debug:
+        msg: |
+          === Magic Variables Summary ===
+          Hostname: {{ inventory_hostname }}
+          IP: {{ ansible_host }}
+          Groups: {{ group_names | join(', ') }}
+          All groups: {{ groups.keys() | list | join(', ') }}
+          Play hosts: {{ ansible_play_hosts | join(', ') }}
+          Webservers: {{ groups['webservers'] | join(', ') }}
+          ================================
+      when: inventory_hostname == "target1"

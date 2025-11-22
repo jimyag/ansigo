@@ -1,0 +1,69 @@
+---
+# 测试 become (权限提升) 功能
+- name: Test become functionality
+  hosts: webservers
+  gather_facts: no
+  vars:
+    test_user: "testuser"
+  tasks:
+    # 不使用 become - 显示当前用户
+    - name: Show current user without become
+      command: whoami
+      register: current_user
+
+    - name: Display current user
+      debug:
+        msg: "Current user: {{ current_user.stdout }}"
+
+    # 使用 play 级别的 become
+- name: Test play-level become
+  hosts: webservers
+  gather_facts: no
+  become: true
+  tasks:
+    - name: Show user with play-level become
+      command: whoami
+      register: become_user
+
+    - name: Display become user
+      debug:
+        msg: "Become user: {{ become_user.stdout }}"
+
+    # Task 级别 become 覆盖
+    - name: Task without become (overriding play)
+      command: whoami
+      become: false
+      register: no_become_user
+
+    - name: Display non-become user
+      debug:
+        msg: "Non-become user: {{ no_become_user.stdout }}"
+
+# 测试 task 级别的 become
+- name: Test task-level become
+  hosts: webservers
+  gather_facts: no
+  tasks:
+    - name: Normal user operation
+      command: whoami
+      register: normal_user
+
+    - name: Root operation with become
+      command: whoami
+      become: true
+      register: root_user
+
+    - name: Display results
+      debug:
+        msg: "Normal: {{ normal_user.stdout }}, Root: {{ root_user.stdout }}"
+
+    # 测试 become_user 指定其他用户
+    # - name: Become specific user
+    #   command: whoami
+    #   become: yes
+    #   become_user: "{{ test_user }}"
+    #   register: specific_user
+
+    # - name: Display specific user
+    #   debug:
+    #     msg: "Specific user: {{ specific_user.stdout }}"

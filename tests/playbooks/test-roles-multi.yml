@@ -1,0 +1,12 @@
+---
+# Test multiple roles
+- name: Test Multiple Roles
+  hosts: webservers
+  roles:
+    - test_role
+    - role: test_role
+      role_message: "Second invocation with different message"
+  tasks:
+    - name: Final task
+      debug:
+        msg: "All roles completed"

@@ -1,0 +1,6 @@
+---
+# Basic roles test
+- name: Test Roles Basic
+  hosts: all
+  roles:
+    - test_role

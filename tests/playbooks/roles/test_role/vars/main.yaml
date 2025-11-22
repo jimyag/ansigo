@@ -1,0 +1,4 @@
+---
+# Role variables (higher priority than defaults)
+role_var: "role_value"
+role_message: "Hello from test_role"

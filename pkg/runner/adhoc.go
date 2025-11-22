@@ -90,8 +90,8 @@ func (r *AdhocRunner) executeOnHost(host *inventory.Host, moduleName string, mod
 	}
 	defer conn.Close()
 
-	// 执行模块
-	modResult, err := r.modExec.Execute(conn, moduleName, moduleArgs)
+	// 执行模块（ad-hoc 命令默认不使用 become）
+	modResult, err := r.modExec.Execute(conn, moduleName, moduleArgs, false, "", "")
 	if err != nil {
 		return TaskResult{
 			Host: host.Name,

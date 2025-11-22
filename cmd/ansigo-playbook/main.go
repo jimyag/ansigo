@@ -65,6 +65,9 @@ func main() {
 	runner := playbook.NewRunner(invMgr)
 	defer runner.Close() // 确保释放模板引擎资源
 
+	// 设置 playbook 路径（用于 role 查找）
+	runner.SetPlaybookPath(playbookPath)
+
 	if err := runner.Run(pb); err != nil {
 		logger.Errorf("Playbook execution failed: %v", err)
 		os.Exit(2)

@@ -1,0 +1,16 @@
+---
+# Debug inventory structure
+- name: Debug Inventory
+  hosts: all
+  tasks:
+    - name: Show raw group_names
+      shell: echo "group_names={{ group_names }}"
+      register: result
+
+    - name: Show result
+      debug:
+        var: result.stdout
+
+    - name: Direct debug of group_names
+      debug:
+        msg: "Groups: {{ group_names }}"

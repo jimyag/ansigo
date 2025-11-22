@@ -1,0 +1,74 @@
+---
+# 魔法变量功能测试
+- name: Test Magic Variables
+  hosts: all
+  vars:
+    test_var: "play_level_value"
+  tasks:
+    # 测试 1: inventory_hostname 和 ansible_host
+    - name: Show inventory_hostname and ansible_host
+      debug:
+        msg: "Host: {{ inventory_hostname }}, Address: {{ ansible_host }}"
+
+    # 测试 2: group_names - 显示当前主机所属的组
+    - name: Show group_names
+      debug:
+        msg: "{{ inventory_hostname }} belongs to groups: {{ group_names }}"
+
+    # 测试 3: groups - 显示所有组及其成员
+    - name: Show all groups
+      debug:
+        msg: "Groups: {{ groups }}"
+      run_once: true
+
+    # 测试 4: groups['webservers'] - 访问特定组的成员
+    - name: Show webservers group members
+      debug:
+        msg: "Webservers: {{ groups['webservers'] }}"
+      run_once: true
+
+    # 测试 5: ansible_play_hosts - 当前 play 的主机列表
+    - name: Show ansible_play_hosts
+      debug:
+        msg: "Play hosts: {{ ansible_play_hosts }}"
+      run_once: true
+
+    # 测试 6: hostvars - 访问其他主机的变量
+    - name: Register a variable on each host
+      set_fact:
+        my_unique_var: "value_from_{{ inventory_hostname }}"
+
+    - name: Show hostvars from target1
+      debug:
+        msg: "Target1's unique var: {{ hostvars['target1']['my_unique_var'] }}"
+      when: inventory_hostname == "target2"
+
+    # 测试 7: 使用 hostvars 访问其他主机的 ansible_host
+    - name: Show ansible_host of all hosts using hostvars
+      debug:
+        msg: "{{ item }}: {{ hostvars[item]['ansible_host'] }}"
+      loop: "{{ ansible_play_hosts }}"
+      run_once: true
+
+    # 测试 8: 遍历组成员
+    - name: Loop through webservers group
+      debug:
+        msg: "Webserver: {{ item }}"
+      loop: "{{ groups['webservers'] }}"
+      run_once: true
+
+    # 测试 9: 条件判断 - 检查主机是否在特定组中
+    - name: Check if host is in webservers group
+      debug:
+        msg: "{{ inventory_hostname }} is a webserver!"
+      when: "'webservers' in group_names"
+
+    # 测试 10: 使用 hostvars 和 groups 构建配置
+    - name: Build configuration using magic variables
+      debug:
+        msg: |
+          Configuration for {{ inventory_hostname }}:
+          - My groups: {{ group_names | join(', ') }}
+          - Total hosts in play: {{ ansible_play_hosts | length }}
+          - Webservers count: {{ groups['webservers'] | length }}
+      run_once: true

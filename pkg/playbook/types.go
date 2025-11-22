@@ -12,12 +12,32 @@ type Playbook []Play
 
 // Play 代表 Playbook 中的一个 play
 type Play struct {
-	Name        string                 `yaml:"name"`
-	Hosts       string                 `yaml:"hosts"`
-	GatherFacts bool                   `yaml:"gather_facts"`
-	Vars        map[string]interface{} `yaml:"vars"`
-	Tasks       []Task                 `yaml:"tasks"`
-	Handlers    []Handler              `yaml:"handlers"`
+	Name         string                 `yaml:"name"`
+	Hosts        string                 `yaml:"hosts"`
+	GatherFacts  bool                   `yaml:"gather_facts"`
+	Vars         map[string]interface{} `yaml:"vars"`
+	Roles        []interface{}          `yaml:"roles"` // 可以是字符串或字典
+	Tasks        []Task                 `yaml:"tasks"`
+	Handlers     []Handler              `yaml:"handlers"`
+	Become       bool                   `yaml:"become"`        // Play 级别权限提升
+	BecomeUser   string                 `yaml:"become_user"`   // 切换到的用户（默认 root）
+	BecomeMethod string                 `yaml:"become_method"` // 提权方法（默认 sudo）
+}
+
+// Role 代表一个 Ansible Role
+type Role struct {
+	Name     string                 // Role 名称
+	Path     string                 // Role 路径
+	Vars     map[string]interface{} // Role 变量
+	Defaults map[string]interface{} // 默认变量
+	Tasks    []Task                 // 任务列表
+	Handlers []Handler              // Handler 列表
+}
+
+// RoleSpec 代表 Role 引用（可以是字符串或带参数的字典）
+type RoleSpec struct {
+	Name string                 // Role 名称
+	Vars map[string]interface{} // 传递给 role 的变量
 }
 
 // LoopControl 循环控制选项
@@ -49,6 +69,9 @@ type Task struct {
 	Loop         []interface{} // 循环列表
 	LoopControl  *LoopControl  // 循环控制选项
 	TaskBlock    *Block        // Block 结构（如果是 block 任务）
+	Become       *bool         // Task 级别权限提升（指针以区分未设置和 false）
+	BecomeUser   string        // 切换到的用户
+	BecomeMethod string        // 提权方法
 }
 
 // Handler 代表一个 handler（本质是特殊的任务）
@@ -71,12 +94,15 @@ func (t *Task) UnmarshalYAML(value *yaml.Node) error {
 		FailedWhen   string       `yaml:"failed_when"`
 		ChangedWhen  string       `yaml:"changed_when"`
 		IgnoreErrors bool         `yaml:"ignore_errors"`
-		Notify       interface{}  `yaml:"notify"`       // 可以是字符串或列表
-		Loop         interface{}  `yaml:"loop"`         // 循环列表（可以是列表或模板字符串）
-		LoopControl  *LoopControl `yaml:"loop_control"` // 循环控制
-		Block        []Task       `yaml:"block"`        // Block 任务列表
-		Rescue       []Task       `yaml:"rescue"`       // Rescue 任务列表
-		Always       []Task       `yaml:"always"`       // Always 任务列表
+		Notify       interface{}  `yaml:"notify"`        // 可以是字符串或列表
+		Loop         interface{}  `yaml:"loop"`          // 循环列表（可以是列表或模板字符串）
+		LoopControl  *LoopControl `yaml:"loop_control"`  // 循环控制
+		Block        []Task       `yaml:"block"`         // Block 任务列表
+		Rescue       []Task       `yaml:"rescue"`        // Rescue 任务列表
+		Always       []Task       `yaml:"always"`        // Always 任务列表
+		Become       *bool        `yaml:"become"`        // 权限提升
+		BecomeUser   string       `yaml:"become_user"`   // 切换用户
+		BecomeMethod string       `yaml:"become_method"` // 提权方法
 	}
 
 	var fields TaskFields
@@ -91,6 +117,9 @@ func (t *Task) UnmarshalYAML(value *yaml.Node) error {
 	t.ChangedWhen = fields.ChangedWhen
 	t.IgnoreErrors = fields.IgnoreErrors
 	t.LoopControl = fields.LoopControl
+	t.Become = fields.Become
+	t.BecomeUser = fields.BecomeUser
+	t.BecomeMethod = fields.BecomeMethod
 	t.ModuleArgs = make(map[string]interface{})
 
 	// 检查是否是 block 任务
@@ -147,19 +176,28 @@ func (t *Task) UnmarshalYAML(value *yaml.Node) error {
 		"block":         true,
 		"rescue":        true,
 		"always":        true,
+		"become":        true,
+		"become_user":   true,
+		"become_method": true,
 	}
 
 	// 已知的模块列表
 	knownModules := map[string]bool{
-		"ping":     true,
-		"command":  true,
-		"shell":    true,
-		"raw":      true,
-		"copy":     true,
-		"debug":    true,
-		"set_fact": true,
-		"file":     true,
-		"template": true,
+		"ping":                         true,
+		"command":                      true,
+		"shell":                        true,
+		"raw":                          true,
+		"copy":                         true,
+		"debug":                        true,
+		"set_fact":                     true,
+		"file":                         true,
+		"template":                     true,
+		"lineinfile":                   true,
+		"service":                      true,
+		"ansible.builtin.import_tasks": true,
+		"import_tasks":                 true,
+		"ansible.builtin.include_role": true,
+		"include_role":                 true,
 	}
 
 	// 遍历所有字段，查找模块名
@@ -239,15 +277,21 @@ func (h *Handler) UnmarshalYAML(value *yaml.Node) error {
 
 	// 已知的模块列表（与 Task 相同）
 	knownModules := map[string]bool{
-		"ping":     true,
-		"command":  true,
-		"shell":    true,
-		"raw":      true,
-		"copy":     true,
-		"debug":    true,
-		"set_fact": true,
-		"file":     true,
-		"template": true,
+		"ping":                         true,
+		"command":                      true,
+		"shell":                        true,
+		"raw":                          true,
+		"copy":                         true,
+		"debug":                        true,
+		"set_fact":                     true,
+		"file":                         true,
+		"template":                     true,
+		"lineinfile":                   true,
+		"service":                      true,
+		"ansible.builtin.import_tasks": true,
+		"import_tasks":                 true,
+		"ansible.builtin.include_role": true,
+		"include_role":                 true,
 	}
 
 	// 遍历所有字段，查找模块名

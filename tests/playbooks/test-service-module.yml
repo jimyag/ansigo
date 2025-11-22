@@ -1,0 +1,156 @@
+---
+# Service 模块功能测试
+# 注意: 此测试需要在具有 systemd 或 service 命令的系统上运行
+- name: Test Service Module
+  hosts: all
+  tasks:
+    # 测试 1: 检测系统类型
+    - name: Check if systemd is available
+      shell: command -v systemctl
+      register: systemd_check
+      failed_when: false
+      changed_when: false
+
+    - name: Show systemd availability
+      debug:
+        msg: "Systemd available: {{ systemd_check.rc == 0 }}"
+
+    # 测试 2: 安装一个测试服务 (cron)
+    - name: Install cron service (Debian/Ubuntu)
+      shell: |
+        if command -v apt-get >/dev/null 2>&1; then
+          apt-get update -qq && apt-get install -y -qq cron
+        elif command -v yum >/dev/null 2>&1; then
+          yum install -y -q cronie
+        fi
+      register: install_result
+      changed_when: install_result.rc == 0
+
+    - name: Show install result
+      debug:
+        msg: "Install completed with rc={{ install_result.rc }}"
+
+    # 测试 3: 启动服务
+    - name: Start cron service
+      service:
+        name: cron
+        state: started
+      register: start_result
+      ignore_errors: yes
+
+    - name: Show start result
+      debug:
+        msg: "Start service: changed={{ start_result.changed }}, failed={{ start_result.failed }}"
+
+    # 测试 4: 检查服务是否正在运行
+    - name: Check if cron is running
+      shell: |
+        if command -v systemctl >/dev/null 2>&1; then
+          systemctl is-active cron || systemctl is-active crond
+        else
+          service cron status || service crond status
+        fi
+      register: status_check
+      failed_when: false
+      changed_when: false
+
+    - name: Show service status
+      debug:
+        msg: "Service running: {{ status_check.rc == 0 }}"
+
+    # 测试 5: 幂等性测试 - 再次启动已运行的服务
+    - name: Start cron service again (should not change)
+      service:
+        name: cron
+        state: started
+      register: idempotent_result
+      ignore_errors: yes
+
+    - name: Verify idempotency
+      debug:
+        msg: "Idempotent test: changed={{ idempotent_result.changed }} (should be false if service was already running)"
+
+    # 测试 6: 重启服务
+    - name: Restart cron service
+      service:
+        name: cron
+        state: restarted
+      register: restart_result
+      ignore_errors: yes
+
+    - name: Show restart result
+      debug:
+        msg: "Restart service: changed={{ restart_result.changed }}"
+
+    # 测试 7: 停止服务
+    - name: Stop cron service
+      service:
+        name: cron
+        state: stopped
+      register: stop_result
+      ignore_errors: yes
+
+    - name: Show stop result
+      debug:
+        msg: "Stop service: changed={{ stop_result.changed }}"
+
+    # 测试 8: 验证服务已停止
+    - name: Verify service is stopped
+      shell: |
+        if command -v systemctl >/dev/null 2>&1; then
+          systemctl is-active cron || systemctl is-active crond
+        else
+          service cron status || service crond status
+        fi
+      register: stopped_check
+      failed_when: stopped_check.rc == 0
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Show stopped status
+      debug:
+        msg: "Service stopped: {{ stopped_check.rc != 0 }}"
+
+    # 测试 9: 设置开机自启（如果支持）
+    - name: Enable cron service on boot
+      service:
+        name: cron
+        enabled: yes
+      register: enable_result
+      ignore_errors: yes
+
+    - name: Show enable result
+      debug:
+        msg: "Enable service: changed={{ enable_result.changed }}, failed={{ enable_result.failed }}"
+
+    # 测试 10: 禁用开机自启
+    - name: Disable cron service on boot
+      service:
+        name: cron
+        enabled: no
+      register: disable_result
+      ignore_errors: yes
+
+    - name: Show disable result
+      debug:
+        msg: "Disable service: changed={{ disable_result.changed }}, failed={{ disable_result.failed }}"
+
+    # 测试 11: 同时设置状态和启用
+    - name: Start and enable cron service
+      service:
+        name: cron
+        state: started
+        enabled: yes
+      register: combined_result
+      ignore_errors: yes
+
+    - name: Show combined result
+      debug:
+        msg: "Combined operation: changed={{ combined_result.changed }}, failed={{ combined_result.failed }}"
+
+    # 清理：确保服务处于合理状态
+    - name: Cleanup - ensure cron is running
+      service:
+        name: cron
+        state: started
+      ignore_errors: yes

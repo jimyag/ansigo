@@ -1,0 +1,4 @@
+---
+- name: Role handler
+  debug:
+    msg: "Role handler was notified!"

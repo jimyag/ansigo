@@ -1,0 +1,23 @@
+---
+# Test include_role with tasks_from
+- name: Test Include Role
+  hosts: all
+  vars:
+    # Provide the variables that the role needs
+    role_default_var: "provided_default"
+    role_var: "provided_var"
+    role_message: "Hello from include_role test"
+    role_port: 7777
+  tasks:
+    - name: Task before include_role
+      debug:
+        msg: "Starting include_role test"
+
+    - name: Include specific tasks from role
+      ansible.builtin.include_role:
+        name: test_role
+        tasks_from: main
+
+    - name: Task after include_role
+      debug:
+        msg: "Finished include_role test"

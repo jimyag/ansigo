@@ -13,7 +13,7 @@ type TemplateModule struct{}
 
 // Execute 执行 template 模块
 // 注意：模板渲染由 runner 预处理，这里只负责文件传输和权限设置
-func (m *TemplateModule) Execute(conn *connection.Connection, args map[string]interface{}) (*Result, error) {
+func (m *TemplateModule) Execute(conn *connection.Connection, args map[string]interface{}, become bool, becomeUser, becomeMethod string) (*Result, error) {
 	result := &Result{}
 
 	// 获取必需参数：dest（目标路径）

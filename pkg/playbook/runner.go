@@ -21,6 +21,8 @@ type Runner struct {
 	template         TemplateEngineInterface
 	logger           *logger.AnsibleLogger
 	notifiedHandlers map[string]bool // 记录被通知的 handlers
+	playbookPath     string          // Playbook 文件路径（用于 role 查找）
+	currentPlay      *Play           // 当前正在执行的 Play（用于访问 play 级别设置）
 }
 
 // NewRunner 创建 Playbook Runner
@@ -33,6 +35,11 @@ func NewRunner(inv *inventory.Manager) *Runner {
 		template:  NewDefaultTemplateEngine(), // 使用 Jinja2 引擎
 		logger:    logger.NewAnsibleLogger(false),
 	}
+}
+
+// SetPlaybookPath 设置 playbook 文件路径
+func (r *Runner) SetPlaybookPath(path string) {
+	r.playbookPath = path
 }
 
 // Close 关闭 Runner 并释放资源
@@ -57,11 +64,75 @@ func (r *Runner) Run(playbook Playbook) error {
 func (r *Runner) ExecutePlay(play *Play) error {
 	r.logger.PlayHeader(play.Name)
 
+	// 设置当前 Play（用于任务执行时访问 play 级别设置）
+	r.currentPlay = play
+
 	// 初始化 notified handlers 跟踪
 	r.notifiedHandlers = make(map[string]bool)
 
-	// 设置 Play 变量
-	r.varMgr.SetPlayVars(play.Vars)
+	// 加载并展开 roles
+	var allTasks []Task
+	var allHandlers []Handler
+	playVars := make(map[string]interface{})
+
+	// 复制 play vars
+	for k, v := range play.Vars {
+		playVars[k] = v
+	}
+
+	// 处理 roles
+	if len(play.Roles) > 0 {
+		loader := NewRoleLoader(r.playbookPath)
+
+		for _, roleData := range play.Roles {
+			// 解析 role spec
+			spec, err := ParseRoleSpec(roleData)
+			if err != nil {
+				return fmt.Errorf("failed to parse role spec: %w", err)
+			}
+
+			// 加载 role
+			role, err := loader.LoadRole(spec)
+			if err != nil {
+				return fmt.Errorf("failed to load role '%s': %w", spec.Name, err)
+			}
+
+			// 合并 role defaults（最低优先级）
+			for k, v := range role.Defaults {
+				if _, exists := playVars[k]; !exists {
+					playVars[k] = v
+				}
+			}
+
+			// 合并 role vars（高优先级）
+			for k, v := range role.Vars {
+				playVars[k] = v
+			}
+
+			// 添加 role 任务到任务列表
+			allTasks = append(allTasks, role.Tasks...)
+
+			// 添加 role handlers
+			allHandlers = append(allHandlers, role.Handlers...)
+		}
+	}
+
+	// 添加 play 的任务（在 role 任务之后）
+	allTasks = append(allTasks, play.Tasks...)
+
+	// 添加 play 的 handlers
+	allHandlers = append(allHandlers, play.Handlers...)
+
+	// 展开任务（处理 import_tasks 和 include_role）
+	taskIncluder := NewTaskIncluder(r.playbookPath)
+	expandedTasks, err := r.expandAllTasks(allTasks, taskIncluder, playVars)
+	if err != nil {
+		return fmt.Errorf("failed to expand tasks: %w", err)
+	}
+	allTasks = expandedTasks
+
+	// 设置合并后的 Play 变量
+	r.varMgr.SetPlayVars(playVars)
 
 	// 获取目标主机
 	hosts, err := r.inventory.GetHosts(play.Hosts)
@@ -73,6 +144,13 @@ func (r *Runner) ExecutePlay(play *Play) error {
 		return fmt.Errorf("no hosts matched pattern: %s", play.Hosts)
 	}
 
+	// 设置 play 主机列表（用于魔法变量）
+	hostNames := make([]string, len(hosts))
+	for i, host := range hosts {
+		hostNames[i] = host.Name
+	}
+	r.varMgr.SetPlayHosts(hostNames)
+
 	// 跟踪活跃主机（未失败的主机）
 	activeHosts := make([]*inventory.Host, len(hosts))
 	copy(activeHosts, hosts)
@@ -83,8 +161,8 @@ func (r *Runner) ExecutePlay(play *Play) error {
 		stats[host.Name] = &HostStats{}
 	}
 
-	// 执行所有任务
-	for taskIdx, task := range play.Tasks {
+	// 执行所有任务（包括 role 任务和 play 任务）
+	for taskIdx, task := range allTasks {
 		if len(activeHosts) == 0 {
 			r.logger.Warning("No more hosts available, stopping play")
 			break
@@ -176,14 +254,14 @@ func (r *Runner) ExecutePlay(play *Play) error {
 		}
 
 		// 如果是最后一个任务，打印空行
-		if taskIdx == len(play.Tasks)-1 {
+		if taskIdx == len(allTasks)-1 {
 			fmt.Println()
 		}
 	}
 
-	// 执行所有被通知的 handlers
-	if len(play.Handlers) > 0 && len(r.notifiedHandlers) > 0 {
-		if err := r.executeHandlers(play.Handlers, activeHosts, stats); err != nil {
+	// 执行所有被通知的 handlers（包括 role handlers 和 play handlers）
+	if len(allHandlers) > 0 && len(r.notifiedHandlers) > 0 {
+		if err := r.executeHandlers(allHandlers, activeHosts, stats); err != nil {
 			return fmt.Errorf("handler execution failed: %w", err)
 		}
 	}
@@ -311,8 +389,24 @@ func (r *Runner) executeTask(task *Task, host *inventory.Host) *TaskResult {
 	}
 	defer conn.Close()
 
+	// 确定是否需要 become（任务级别优先，然后是 play 级别）
+	shouldBecome := r.currentPlay.Become
+	becomeUser := r.currentPlay.BecomeUser
+	becomeMethod := r.currentPlay.BecomeMethod
+
+	// Task 级别 become 优先
+	if task.Become != nil {
+		shouldBecome = *task.Become
+		if task.BecomeUser != "" {
+			becomeUser = task.BecomeUser
+		}
+		if task.BecomeMethod != "" {
+			becomeMethod = task.BecomeMethod
+		}
+	}
+
 	// 执行模块
-	modResult, err := r.modExec.Execute(conn, task.Module, normalizedArgs)
+	modResult, err := r.modExec.Execute(conn, task.Module, normalizedArgs, shouldBecome, becomeUser, becomeMethod)
 	if err != nil {
 		result.Failed = true
 		result.Msg = err.Error()
@@ -603,8 +697,14 @@ func (r *Runner) executeHandlerTask(handler *Handler, host *inventory.Host) *Tas
 	}
 	defer conn.Close()
 
+	// Handlers 默认不使用 become，除非在 handler 定义中明确设置
+	// 注意：Handler 结构需要有 Become 字段才能支持，目前使用默认值
+	shouldBecome := false
+	becomeUser := ""
+	becomeMethod := ""
+
 	// 执行模块
-	modResult, err := r.modExec.Execute(conn, handler.Module, normalizedArgs)
+	modResult, err := r.modExec.Execute(conn, handler.Module, normalizedArgs, shouldBecome, becomeUser, becomeMethod)
 	if err != nil {
 		result.Failed = true
 		result.Msg = err.Error()
@@ -800,8 +900,22 @@ func (r *Runner) executeTaskWithLoop(task *Task, host *inventory.Host) *TaskResu
 			continue
 		}
 
+		// 确定是否使用 become（任务级别优先，然后是 play 级别）
+		shouldBecome := r.currentPlay.Become
+		becomeUser := r.currentPlay.BecomeUser
+		becomeMethod := r.currentPlay.BecomeMethod
+		if task.Become != nil {
+			shouldBecome = *task.Become
+			if task.BecomeUser != "" {
+				becomeUser = task.BecomeUser
+			}
+			if task.BecomeMethod != "" {
+				becomeMethod = task.BecomeMethod
+			}
+		}
+
 		// 执行模块
-		modResult, err := r.modExec.Execute(conn, task.Module, normalizedArgs)
+		modResult, err := r.modExec.Execute(conn, task.Module, normalizedArgs, shouldBecome, becomeUser, becomeMethod)
 		conn.Close()
 
 		if err != nil {
@@ -1055,4 +1169,34 @@ func (r *Runner) executeBlock(task *Task, host *inventory.Host) *TaskResult {
 	}
 
 	return result
+}
+
+// expandAllTasks 递归展开所有任务（处理 import_tasks 和 include_role）
+func (r *Runner) expandAllTasks(tasks []Task, includer *TaskIncluder, vars map[string]interface{}) ([]Task, error) {
+	var result []Task
+
+	for _, task := range tasks {
+		// 检查是否是包含任务
+		if task.Module == "import_tasks" || task.Module == "ansible.builtin.import_tasks" ||
+			task.Module == "include_role" || task.Module == "ansible.builtin.include_role" {
+			// 展开包含任务
+			expandedTasks, err := includer.ExpandTask(&task, vars)
+			if err != nil {
+				return nil, fmt.Errorf("failed to expand task '%s': %w", task.Name, err)
+			}
+
+			// 递归展开（因为展开的任务可能也包含 import_tasks）
+			expandedTasks, err = r.expandAllTasks(expandedTasks, includer, vars)
+			if err != nil {
+				return nil, err
+			}
+
+			result = append(result, expandedTasks...)
+		} else {
+			// 不是包含任务，直接添加
+			result = append(result, task)
+		}
+	}
+
+	return result, nil
 }

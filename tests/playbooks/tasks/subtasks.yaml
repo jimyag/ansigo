@@ -1,0 +1,13 @@
+---
+# Subtasks to be imported
+- name: Subtask 1
+  debug:
+    msg: "This is subtask 1"
+
+- name: Subtask 2
+  debug:
+    msg: "This is subtask 2 on {{ inventory_hostname }}"
+
+- name: Create a test file
+  shell: echo "Subtask executed" > /tmp/subtask_test.txt
+  changed_when: true

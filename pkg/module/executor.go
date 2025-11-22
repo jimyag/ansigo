@@ -17,28 +17,37 @@ func NewExecutor() *Executor {
 }
 
 // Execute 执行模块
-func (e *Executor) Execute(conn *connection.Connection, moduleName string, args map[string]interface{}) (*Result, error) {
+func (e *Executor) Execute(conn *connection.Connection, moduleName string, args map[string]interface{}, become bool, becomeUser, becomeMethod string) (*Result, error) {
 	switch moduleName {
 	case "ping":
 		return e.executePing(conn)
 	case "raw":
-		return e.executeRaw(conn, args)
+		return e.executeRaw(conn, args, become, becomeUser, becomeMethod)
 	case "command":
-		return e.executeCommand(conn, args)
+		return e.executeCommand(conn, args, become, becomeUser, becomeMethod)
 	case "shell":
-		return e.executeShell(conn, args)
+		return e.executeShell(conn, args, become, becomeUser, becomeMethod)
 	case "copy":
-		return e.executeCopy(conn, args)
+		return e.executeCopy(conn, args, become, becomeUser, becomeMethod)
 	case "debug":
 		return e.executeDebug(args)
 	case "set_fact":
 		return e.executeSetFact(args)
 	case "file":
 		fileModule := &FileModule{}
-		return fileModule.Execute(conn, args)
+		return fileModule.Execute(conn, args, become, becomeUser, becomeMethod)
 	case "template":
 		templateModule := &TemplateModule{}
-		return templateModule.Execute(conn, args)
+		return templateModule.Execute(conn, args, become, becomeUser, becomeMethod)
+	case "lineinfile":
+		lineinfileModule := &LineinfileModule{}
+		return lineinfileModule.Execute(conn, args, become, becomeUser, becomeMethod)
+	case "service":
+		serviceModule := &ServiceModule{}
+		return serviceModule.Execute(conn, args, become, becomeUser, becomeMethod)
+	case "systemd":
+		systemdModule := &SystemdModule{}
+		return systemdModule.Execute(conn, args, become, becomeUser, becomeMethod)
 	default:
 		return nil, fmt.Errorf("unsupported module: %s", moduleName)
 	}
@@ -57,7 +66,7 @@ func (e *Executor) executePing(conn *connection.Connection) (*Result, error) {
 }
 
 // executeRaw 执行 raw 模块
-func (e *Executor) executeRaw(conn *connection.Connection, args map[string]interface{}) (*Result, error) {
+func (e *Executor) executeRaw(conn *connection.Connection, args map[string]interface{}, become bool, becomeUser, becomeMethod string) (*Result, error) {
 	// raw 模块直接执行命令
 	cmd, ok := args["_raw_params"].(string)
 	if !ok {
@@ -69,7 +78,7 @@ func (e *Executor) executeRaw(conn *connection.Connection, args map[string]inter
 		}
 	}
 
-	stdout, stderr, exitCode, err := conn.Exec(cmd)
+	stdout, stderr, exitCode, err := e.execCommand(conn, cmd, become, becomeUser, becomeMethod)
 	if err != nil {
 		return &Result{
 			Failed: true,
@@ -94,7 +103,7 @@ func (e *Executor) executeRaw(conn *connection.Connection, args map[string]inter
 }
 
 // executeCommand 执行 command 模块
-func (e *Executor) executeCommand(conn *connection.Connection, args map[string]interface{}) (*Result, error) {
+func (e *Executor) executeCommand(conn *connection.Connection, args map[string]interface{}, become bool, becomeUser, becomeMethod string) (*Result, error) {
 	// command 模块执行命令，但不使用 shell 解析
 	// 获取命令参数
 	var cmd string
@@ -125,7 +134,7 @@ func (e *Executor) executeCommand(conn *connection.Connection, args map[string]i
 	}
 
 	// 执行命令
-	stdout, stderr, exitCode, err := conn.Exec(cmd)
+	stdout, stderr, exitCode, err := e.execCommand(conn, cmd, become, becomeUser, becomeMethod)
 	if err != nil {
 		return &Result{
 			Failed: true,
@@ -150,7 +159,7 @@ func (e *Executor) executeCommand(conn *connection.Connection, args map[string]i
 }
 
 // executeShell 执行 shell 模块
-func (e *Executor) executeShell(conn *connection.Connection, args map[string]interface{}) (*Result, error) {
+func (e *Executor) executeShell(conn *connection.Connection, args map[string]interface{}, become bool, becomeUser, becomeMethod string) (*Result, error) {
 	// shell 模块通过 shell 执行命令，支持管道、重定向等
 	var cmd string
 	if rawCmd, ok := args["_raw_params"].(string); ok {
@@ -180,7 +189,7 @@ func (e *Executor) executeShell(conn *connection.Connection, args map[string]int
 	}
 
 	// 执行命令
-	stdout, stderr, exitCode, err := conn.Exec(fullCmd)
+	stdout, stderr, exitCode, err := e.execCommand(conn, fullCmd, become, becomeUser, becomeMethod)
 	if err != nil {
 		return &Result{
 			Failed: true,
@@ -205,7 +214,7 @@ func (e *Executor) executeShell(conn *connection.Connection, args map[string]int
 }
 
 // executeCopy 执行 copy 模块
-func (e *Executor) executeCopy(conn *connection.Connection, args map[string]interface{}) (*Result, error) {
+func (e *Executor) executeCopy(conn *connection.Connection, args map[string]interface{}, become bool, becomeUser, becomeMethod string) (*Result, error) {
 	// copy 模块用于文件传输
 	dest, ok := args["dest"].(string)
 	if !ok {
@@ -334,4 +343,12 @@ func (r *Result) ToJSON() (string, error) {
 		return "", err
 	}
 	return string(data), nil
+}
+
+// execCommand 执行命令的辅助函数，处理 become
+func (e *Executor) execCommand(conn *connection.Connection, cmd string, become bool, becomeUser, becomeMethod string) (stdout, stderr []byte, exitCode int, err error) {
+	if become {
+		return conn.ExecWithBecome(cmd, becomeUser, becomeMethod)
+	}
+	return conn.Exec(cmd)
 }

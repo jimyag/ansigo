@@ -1,0 +1,16 @@
+---
+# Test roles with variable overrides
+- name: Test Roles with Variables
+  hosts: all
+  vars:
+    role_port: 9000  # Override role default
+  roles:
+    - test_role
+  tasks:
+    - name: Show overridden port
+      debug:
+        msg: "Port is {{ role_port }}"
+
+    - name: Play task after role
+      debug:
+        msg: "This is a play task after role tasks"

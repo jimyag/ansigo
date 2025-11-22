@@ -34,7 +34,7 @@ func executeCommand(conn *connection.Connection, cmd string) (*execResult, error
 }
 
 // Execute 执行 file 模块
-func (m *FileModule) Execute(conn *connection.Connection, args map[string]interface{}) (*Result, error) {
+func (m *FileModule) Execute(conn *connection.Connection, args map[string]interface{}, become bool, becomeUser, becomeMethod string) (*Result, error) {
 	result := &Result{}
 
 	// 获取必需参数 path

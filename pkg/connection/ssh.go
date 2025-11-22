@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jimyag/ansigo/pkg/errors"
@@ -237,4 +238,43 @@ func (c *Connection) Close() error {
 		return c.client.Close()
 	}
 	return nil
+}
+
+// ExecWithBecome 使用权限提升执行命令
+func (c *Connection) ExecWithBecome(cmd string, becomeUser, becomeMethod string) (stdout, stderr []byte, exitCode int, err error) {
+	// 如果没有指定 become_user，默认为 root
+	if becomeUser == "" {
+		becomeUser = "root"
+	}
+
+	// 如果没有指定 become_method，默认为 sudo
+	if becomeMethod == "" {
+		becomeMethod = "sudo"
+	}
+
+	// 构建 sudo 命令
+	// 使用 -n 选项避免密码提示（假设配置了 NOPASSWD）
+	// 使用 -u 指定目标用户
+	var sudoCmd string
+	switch becomeMethod {
+	case "sudo":
+		if becomeUser == "root" {
+			sudoCmd = fmt.Sprintf("sudo -n sh -c %s", shellQuote(cmd))
+		} else {
+			sudoCmd = fmt.Sprintf("sudo -n -u %s sh -c %s", becomeUser, shellQuote(cmd))
+		}
+	case "su":
+		// su 方式（不太常用）
+		sudoCmd = fmt.Sprintf("su - %s -c %s", becomeUser, shellQuote(cmd))
+	default:
+		return nil, nil, -1, fmt.Errorf("unsupported become method: %s", becomeMethod)
+	}
+
+	return c.ExecWithTimeout(sudoCmd, 30*time.Second)
+}
+
+// shellQuote 为 shell 命令添加引号
+func shellQuote(s string) string {
+	// 简单实现：使用单引号，并转义内部的单引号
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }

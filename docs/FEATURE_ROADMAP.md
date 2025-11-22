@@ -74,11 +74,605 @@
 - ✅ Rescue 失败传播
 - ✅ 递归任务执行支持
 
+### Phase 7: 魔法变量 (已完成 - 2025-11-23)
+
+- ✅ hostvars - 所有主机的变量
+- ✅ groups - 所有组及其成员
+- ✅ group_names - 当前主机所在的组
+- ✅ ansible_play_hosts - 当前 play 的主机列表
+- ✅ ansible_play_batch - 当前批次的主机
+- ✅ inventory_hostname - 当前主机名
+- ✅ ansible_host - 主机地址
+
+### Phase 8: 常用模块 (部分完成 - 2025-11-23)
+
+- ✅ file 模块 - 文件和目录管理
+- ✅ template 模块 - Jinja2 模板渲染
+- ✅ lineinfile 模块 - 行级文件编辑
+
 ---
 
 ## 📋 待实现功能
 
-根据 Ansible 官方文档和实际使用频率，按优先级排序：
+根据实际项目使用需求（基于 homelab 项目分析）和 Ansible 官方文档，按优先级排序：
+
+## 🔴 CRITICAL - Homelab 项目依赖功能
+
+以下功能是运行 homelab 项目的必需功能，缺少任何一项都会导致项目无法运行。
+
+**参考**: 基于 `/Users/jimyag/src/github/homelab` 项目实际分析结果
+
+### 使用统计
+
+从 homelab 项目分析得出的功能使用频率：
+
+**模块使用情况**:
+- import_tasks: 14 次
+- include_role: 12 次
+- systemd: 9 次
+- template: 6 次 ✅
+- get_url: 6 次
+- file: 2 次 ✅
+- copy: 2 次 ✅
+- command: 2 次 ✅
+- unarchive: 2 次
+- user: 1 次
+- fail: 1 次
+- debug: 1 次 ✅
+
+**Playbook 特性使用情况**:
+- tags: 21 次
+- become: 18 次
+- vars: 17 次 ✅
+- notify: 10 次 ✅
+- roles: 6 次
+- when: 5 次 ✅
+- strategy: 5 次
+- loop: 5 次 ✅
+- register: 2 次 ✅
+- changed_when: 1 次 ✅
+
+---
+
+### 🔴 优先级 0: Roles 系统 (CRITICAL)
+
+**重要程度**: ⭐⭐⭐⭐⭐ **CRITICAL**
+**预计工作量**: 3-5 天
+**当前状态**: ❌ 未实现
+**Homelab 依赖**: 所有 playbook 都使用 roles
+
+#### 功能描述
+
+Ansible Roles 是代码组织和复用的核心机制，homelab 项目完全基于 roles 架构。
+
+#### 核心特性
+
+- [ ] **Role 目录结构**
+  ```
+  roles/
+    common/
+      tasks/main.yaml        # 必需
+      handlers/main.yaml     # 可选
+      defaults/main.yaml     # 可选
+      vars/main.yaml         # 可选
+      templates/            # 可选
+      files/                # 可选
+  ```
+
+- [ ] **Play 级别 roles 关键字**
+  ```yaml
+  - name: Deploy service
+    hosts: servers
+    roles:
+      - common
+      - nginx
+  ```
+
+- [ ] **Role 变量优先级**
+  - defaults/main.yaml (最低优先级)
+  - vars/main.yaml (高优先级)
+  - Play vars 覆盖 role defaults
+
+- [ ] **Role 路径解析**
+  - 相对于 playbook 的 `./roles/` 目录
+  - 相对于当前目录的 `./roles/` 目录
+  - 可配置的 roles_path
+
+- [ ] **自动加载 Role 组件**
+  - 自动执行 tasks/main.yaml
+  - 自动加载 handlers/main.yaml
+  - 自动加载 defaults/main.yaml 和 vars/main.yaml
+  - template 和 copy 模块自动查找 role 的 templates/ 和 files/ 目录
+
+#### 实现位置
+
+- 数据结构: `pkg/playbook/types.go` (Role, Play.Roles)
+- 加载逻辑: `pkg/playbook/role_loader.go` (新建)
+- 执行逻辑: `pkg/playbook/runner.go` (扩展 ExecutePlay)
+- 路径解析: `pkg/playbook/path.go` (新建)
+
+#### 测试文件
+
+- `tests/playbooks/test-roles-basic.yml`
+- `tests/playbooks/test-roles-vars.yml`
+- `tests/roles/test_role/` (测试用 role)
+
+#### 实现步骤
+
+1. 定义 Role 数据结构
+2. 实现 Role 目录扫描和加载
+3. 实现 Role 变量合并
+4. 集成到 Play 执行流程
+5. 修改 template/copy 模块支持 role 路径
+6. 编写测试用例
+
+---
+
+### 🔴 优先级 1: Task 包含机制 (CRITICAL)
+
+**重要程度**: ⭐⭐⭐⭐⭐ **CRITICAL**
+**预计工作量**: 2-3 天
+**当前状态**: ❌ 未实现
+**Homelab 依赖**: 26 次使用（14 次 import_tasks + 12 次 include_role）
+
+#### 功能描述
+
+Task 包含机制允许将任务分散到多个文件中，提高代码复用性和可维护性。
+
+#### 核心特性
+
+- [ ] **import_tasks** (静态包含)
+  ```yaml
+  - name: Install software
+    ansible.builtin.import_tasks: install.yaml
+  ```
+  - 编译时展开
+  - 不支持循环
+  - 支持 tags 继承
+
+- [ ] **include_role** (动态包含 role 的部分内容)
+  ```yaml
+  - name: Ensure directories
+    ansible.builtin.include_role:
+      name: common
+      tasks_from: ensure_directories
+    vars:
+      directory_list: ["/opt/app"]
+  ```
+  - 运行时包含
+  - 可以只包含 role 的特定任务文件
+  - 可以传递变量
+
+- [ ] **任务文件路径解析**
+  - 相对于当前 playbook 文件
+  - 相对于 role 的 tasks/ 目录
+  - 支持绝对路径
+
+- [ ] **变量作用域**
+  - include 时可以传递 vars
+  - 被包含的任务可以访问这些变量
+
+#### 实现位置
+
+- 数据结构: `pkg/playbook/types.go` (ImportTasks, IncludeRole)
+- 加载逻辑: `pkg/playbook/include_loader.go` (新建)
+- 执行逻辑: `pkg/playbook/runner.go` (扩展任务执行)
+
+#### 测试文件
+
+- `tests/playbooks/test-import-tasks.yml`
+- `tests/playbooks/test-include-role.yml`
+- `tests/playbooks/tasks/subtasks.yml`
+
+---
+
+### 🔴 优先级 2: systemd 模块 (CRITICAL)
+
+**重要程度**: ⭐⭐⭐⭐⭐ **CRITICAL**
+**预计工作量**: 2-3 天
+**当前状态**: ❌ 未实现
+**Homelab 依赖**: 9 次使用
+
+#### 功能描述
+
+systemd 模块用于管理 systemd 服务，是 Linux 系统服务管理的核心。
+
+#### 核心特性
+
+- [ ] **daemon_reload** - 重新加载 systemd 配置
+  ```yaml
+  - name: Reload systemd
+    ansible.builtin.systemd:
+      daemon_reload: true
+  ```
+
+- [ ] **服务状态管理**
+  ```yaml
+  - name: Start service
+    ansible.builtin.systemd:
+      name: nginx
+      state: started
+  ```
+  - state: started/stopped/restarted/reloaded
+
+- [ ] **服务使能管理**
+  ```yaml
+  - name: Enable service
+    ansible.builtin.systemd:
+      name: nginx
+      enabled: yes
+  ```
+
+- [ ] **组合操作**
+  ```yaml
+  - name: Enable and start
+    ansible.builtin.systemd:
+      name: nginx
+      state: started
+      enabled: yes
+      daemon_reload: yes
+  ```
+
+#### 参数
+
+- `name`: 服务名称（.service 后缀可选）
+- `state`: started/stopped/restarted/reloaded
+- `enabled`: yes/no
+- `daemon_reload`: yes/no
+- `masked`: yes/no (可选，高级功能)
+
+#### 实现位置
+
+- `pkg/module/systemd.go`
+- SSH 执行 systemctl 命令
+- 解析命令输出判断成功/失败
+
+#### 测试文件
+
+- `tests/playbooks/test-systemd.yml`
+
+#### 实现注意
+
+- 需要 sudo 权限（依赖 become）
+- 不同 systemd 版本可能有细微差异
+- 错误处理要详细（服务不存在、权限不足等）
+
+---
+
+### 🔴 优先级 3: become (权限提升) (CRITICAL)
+
+**重要程度**: ⭐⭐⭐⭐⭐ **CRITICAL**
+**预计工作量**: 2-3 天
+**当前状态**: ❌ 未实现
+**Homelab 依赖**: 18 次使用
+
+#### 功能描述
+
+become 机制用于权限提升（通常是 sudo），是执行系统级操作的必需功能。
+
+#### 核心特性
+
+- [ ] **Play 级别 become**
+  ```yaml
+  - name: System tasks
+    hosts: all
+    become: true
+    tasks:
+      - name: Install package
+        ...
+  ```
+
+- [ ] **Task 级别 become**
+  ```yaml
+  - name: Edit system file
+    copy:
+      dest: /etc/config
+      content: "..."
+    become: true
+  ```
+
+- [ ] **become_user** (可选)
+  ```yaml
+  - name: Run as postgres
+    shell: psql -c "..."
+    become: true
+    become_user: postgres
+  ```
+
+- [ ] **become_method** (可选，默认 sudo)
+  - sudo (最常用)
+  - su
+  - pbrun
+  - 等
+
+#### 实现位置
+
+- 数据结构: `pkg/playbook/types.go` (Play.Become, Task.Become)
+- SSH 命令包装: `pkg/connection/ssh.go` (修改 Execute 方法)
+- 命令前缀: `sudo -S` (接受密码从 stdin)
+
+#### 测试文件
+
+- `tests/playbooks/test-become.yml`
+- 测试 play 级别和 task 级别 become
+
+#### 实现注意
+
+- 处理 sudo 密码提示（ansible_become_pass）
+- 处理 NOPASSWD sudo
+- 错误处理（sudo 失败、权限不足）
+- 安全性：不在日志中显示密码
+
+---
+
+### 🟠 优先级 4: get_url 模块 (HIGH)
+
+**重要程度**: ⭐⭐⭐⭐☆ **HIGH**
+**预计工作量**: 1-2 天
+**当前状态**: ❌ 未实现
+**Homelab 依赖**: 6 次使用
+
+#### 功能描述
+
+从 URL 下载文件到远程主机。
+
+#### 核心特性
+
+- [ ] **基本下载**
+  ```yaml
+  - name: Download binary
+    ansible.builtin.get_url:
+      url: https://example.com/file.tar.gz
+      dest: /opt/app/file.tar.gz
+  ```
+
+- [ ] **设置文件属性**
+  ```yaml
+  - name: Download with permissions
+    ansible.builtin.get_url:
+      url: https://example.com/binary
+      dest: /usr/local/bin/app
+      mode: '0755'
+      owner: root
+      group: root
+  ```
+
+- [ ] **校验和验证**
+  ```yaml
+  - name: Download with checksum
+    ansible.builtin.get_url:
+      url: https://example.com/file
+      dest: /tmp/file
+      checksum: sha256:abc123...
+  ```
+
+- [ ] **条件下载**
+  ```yaml
+  - name: Download if not exists
+    ansible.builtin.get_url:
+      url: https://example.com/file
+      dest: /tmp/file
+      force: no  # 不覆盖已存在的文件
+  ```
+
+#### 参数
+
+- `url`: 下载地址（必需）
+- `dest`: 目标路径（必需）
+- `mode`: 文件权限
+- `owner`: 所有者
+- `group`: 组
+- `force`: 是否覆盖（默认 yes）
+- `checksum`: 校验和（可选）
+- `timeout`: 超时时间
+- `headers`: HTTP 头（可选）
+
+#### 实现位置
+
+- `pkg/module/get_url.go`
+- 在远程主机上执行 wget 或 curl
+- 或者：在控制节点下载后 copy（更可靠）
+
+#### 测试文件
+
+- `tests/playbooks/test-get-url.yml`
+
+---
+
+### 🟡 优先级 5: tags (标签过滤) (MEDIUM-HIGH)
+
+**重要程度**: ⭐⭐⭐⭐☆
+**预计工作量**: 2-3 天
+**当前状态**: ❌ 未实现
+**Homelab 依赖**: 21 次使用
+
+#### 功能描述
+
+Tags 允许选择性执行 playbook 的部分任务。
+
+#### 核心特性
+
+- [ ] **Task 级别 tags**
+  ```yaml
+  - name: Install app
+    shell: install.sh
+    tags:
+      - install
+      - setup
+  ```
+
+- [ ] **命令行过滤**
+  ```bash
+  ansigo-playbook site.yml --tags install
+  ansigo-playbook site.yml --skip-tags config
+  ```
+
+- [ ] **特殊 tags**
+  - `always`: 总是执行
+  - `never`: 从不执行（除非明确指定）
+
+- [ ] **Block 级别 tags**
+  ```yaml
+  - block:
+      - name: Task 1
+        ...
+    tags: [config]
+  ```
+
+#### 实现位置
+
+- 数据结构: `pkg/playbook/types.go` (Task.Tags, Block.Tags)
+- CLI 参数: `cmd/ansigo-playbook/main.go` (--tags, --skip-tags)
+- 过滤逻辑: `pkg/playbook/runner.go`
+
+#### 测试文件
+
+- `tests/playbooks/test-tags.yml`
+
+---
+
+### 🟡 优先级 6: strategy (执行策略) (MEDIUM)
+
+**重要程度**: ⭐⭐⭐☆☆
+**预计工作量**: 1-2 天
+**当前状态**: ❌ 未实现（当前默认 linear）
+**Homelab 依赖**: 5 次使用
+
+#### 功能描述
+
+Strategy 控制任务在多主机间的执行方式。
+
+#### 核心特性
+
+- [ ] **linear** (默认)
+  ```yaml
+  - name: Deploy
+    hosts: all
+    strategy: linear
+  ```
+  - 所有主机完成 Task 1，再执行 Task 2
+  - 当前 AnsiGo 默认行为
+
+- [ ] **free**
+  ```yaml
+  - name: Deploy
+    hosts: all
+    strategy: free
+  ```
+  - 每个主机独立执行所有任务
+  - 不等待其他主机
+  - 更快，但主机间可能不同步
+
+#### 实现位置
+
+- 数据结构: `pkg/playbook/types.go` (Play.Strategy)
+- 执行逻辑: `pkg/playbook/runner.go` (ExecutePlay 方法)
+- 并发控制: 使用 goroutine 和 channel
+
+#### 测试文件
+
+- `tests/playbooks/test-strategy-linear.yml`
+- `tests/playbooks/test-strategy-free.yml`
+
+---
+
+### 🟢 优先级 7: 其他模块 (MEDIUM-LOW)
+
+#### 7.1 unarchive 模块
+
+**Homelab 依赖**: 2 次使用
+
+```yaml
+- name: Extract archive
+  ansible.builtin.unarchive:
+    src: /tmp/app.tar.gz
+    dest: /opt/app
+    remote_src: yes
+```
+
+参数:
+- `src`: 源文件
+- `dest`: 解压目录
+- `remote_src`: 文件是否在远程主机（yes/no）
+- `creates`: 如果存在则跳过
+
+#### 7.2 user 模块
+
+**Homelab 依赖**: 1 次使用
+
+```yaml
+- name: Create user
+  ansible.builtin.user:
+    name: appuser
+    state: present
+    shell: /bin/bash
+    groups: docker
+```
+
+参数:
+- `name`: 用户名
+- `state`: present/absent
+- `shell`: 登录 shell
+- `groups`: 附加组
+- `home`: 家目录
+
+#### 7.3 fail 模块
+
+**Homelab 依赖**: 1 次使用
+
+```yaml
+- name: Fail if condition
+  ansible.builtin.fail:
+    msg: "Required variable is not defined"
+  when: required_var is not defined
+```
+
+参数:
+- `msg`: 失败消息
+
+---
+
+## 📊 Homelab 兼容性实现时间线
+
+| 功能 | 优先级 | 工作量 | 依赖 | 状态 |
+|------|--------|--------|------|------|
+| Roles 系统 | P0 | 3-5天 | - | ❌ 待实现 |
+| import_tasks/include_role | P1 | 2-3天 | Roles | ❌ 待实现 |
+| systemd 模块 | P2 | 2-3天 | become | ❌ 待实现 |
+| become | P3 | 2-3天 | - | ❌ 待实现 |
+| get_url 模块 | P4 | 1-2天 | - | ❌ 待实现 |
+| tags | P5 | 2-3天 | - | ❌ 待实现 |
+| strategy | P6 | 1-2天 | - | ❌ 待实现 |
+| unarchive | P7 | 1天 | - | ❌ 待实现 |
+| user | P7 | 1天 | - | ❌ 待实现 |
+| fail | P7 | 0.5天 | - | ❌ 待实现 |
+
+**总计**: 约 16-24 天（3-5 周）
+
+---
+
+## 🎯 Homelab 兼容性里程碑
+
+### Milestone 1: 代码组织 (第 1-2 周)
+- Roles 系统
+- import_tasks/include_role
+- **目标**: 能够加载和执行 homelab 的 role 结构
+
+### Milestone 2: 系统管理 (第 3 周)
+- become (权限提升)
+- systemd 模块
+- **目标**: 能够管理系统服务
+
+### Milestone 3: 完整功能 (第 4-5 周)
+- get_url 模块
+- tags
+- strategy
+- 其他辅助模块
+- **目标**: 完整运行 homelab 项目
+
+---
+
+## 旧功能规划（保留）
 
 ### ~~🔴 优先级 1: Handlers 和 Notify~~ ✅ 已完成
 

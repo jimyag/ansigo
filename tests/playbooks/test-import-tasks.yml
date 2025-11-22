@@ -1,0 +1,15 @@
+---
+# Test import_tasks
+- name: Test Import Tasks
+  hosts: webservers
+  tasks:
+    - name: Task before import
+      debug:
+        msg: "This is before import"
+
+    - name: Import subtasks
+      ansible.builtin.import_tasks: tasks/subtasks.yaml
+
+    - name: Task after import
+      debug:
+        msg: "This is after import"
