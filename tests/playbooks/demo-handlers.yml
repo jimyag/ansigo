@@ -1,0 +1,71 @@
+---
+# Handlers 功能演示 - 模拟真实的应用部署场景
+- name: Deploy Web Application
+  hosts: all
+  vars:
+    app_version: "2.0.1"
+    config_changed: true
+
+  tasks:
+    - name: Update application binary
+      debug:
+        msg: "Installing app version {{ app_version }}"
+      changed_when: true
+      notify: Restart App Service
+
+    - name: Update application configuration
+      debug:
+        msg: "Updating configuration files"
+      changed_when: config_changed
+      notify:
+        - Validate Config
+        - Restart App Service
+        - Clear Cache
+
+    - name: Update nginx reverse proxy config
+      debug:
+        msg: "Updating nginx configuration"
+      changed_when: true
+      notify: reload web services
+
+    - name: Update SSL certificates
+      debug:
+        msg: "Renewing SSL certificates"
+      changed_when: false  # 证书未变更，不应触发重启
+      notify: reload web services
+
+    - name: Run database migrations
+      debug:
+        msg: "Running database migrations"
+      changed_when: true
+      notify: Restart Database
+
+  handlers:
+    # 按定义顺序执行，不按 notify 顺序
+
+    - name: Validate Config
+      debug:
+        msg: "[1] Validating configuration files..."
+
+    - name: Restart Database
+      debug:
+        msg: "[2] Restarting database service..."
+
+    - name: Restart App Service
+      debug:
+        msg: "[3] Restarting application service (only once, despite 2 notifies)..."
+
+    - name: Reload Nginx
+      listen: reload web services
+      debug:
+        msg: "[4] Reloading nginx..."
+
+    - name: Reload HAProxy
+      listen: reload web services
+      debug:
+        msg: "[5] Reloading HAProxy load balancer..."
+
+    - name: Clear Cache
+      debug:
+        msg: "[6] Clearing application cache..."
+      when: config_changed

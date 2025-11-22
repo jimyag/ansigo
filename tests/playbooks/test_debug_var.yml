@@ -1,0 +1,46 @@
+---
+- name: Test debug var parameter
+  hosts: all
+  vars:
+    my_string: "Hello World"
+    my_number: 42
+    my_list:
+      - item1
+      - item2
+      - item3
+    my_dict:
+      key1: value1
+      key2: value2
+
+  tasks:
+    - name: Debug string variable
+      debug:
+        var: my_string
+
+    - name: Debug number variable
+      debug:
+        var: my_number
+
+    - name: Debug list variable
+      debug:
+        var: my_list
+
+    - name: Debug dict variable
+      debug:
+        var: my_dict
+
+    - name: Debug magic variable
+      debug:
+        var: inventory_hostname
+
+    - name: Set a fact and debug it
+      set_fact:
+        custom_fact: "This is a custom fact from {{ inventory_hostname }}"
+
+    - name: Debug the custom fact
+      debug:
+        var: custom_fact
+
+    - name: Debug undefined variable
+      debug:
+        var: undefined_variable

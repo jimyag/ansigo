@@ -2,6 +2,8 @@ package playbook
 
 import (
 	"fmt"
+	"os"
+	"strings"
 	"sync"
 
 	"github.com/jimyag/ansigo/pkg/connection"
@@ -12,12 +14,13 @@ import (
 
 // Runner Playbook 执行器
 type Runner struct {
-	inventory *inventory.Manager
-	connMgr   *connection.Manager
-	modExec   *module.Executor
-	varMgr    *VariableManager
-	template  TemplateEngineInterface
-	logger    *logger.AnsibleLogger
+	inventory        *inventory.Manager
+	connMgr          *connection.Manager
+	modExec          *module.Executor
+	varMgr           *VariableManager
+	template         TemplateEngineInterface
+	logger           *logger.AnsibleLogger
+	notifiedHandlers map[string]bool // 记录被通知的 handlers
 }
 
 // NewRunner 创建 Playbook Runner
@@ -30,6 +33,14 @@ func NewRunner(inv *inventory.Manager) *Runner {
 		template:  NewDefaultTemplateEngine(), // 使用 Jinja2 引擎
 		logger:    logger.NewAnsibleLogger(false),
 	}
+}
+
+// Close 关闭 Runner 并释放资源
+func (r *Runner) Close() error {
+	if r.template != nil {
+		return r.template.Close()
+	}
+	return nil
 }
 
 // Run 执行整个 Playbook
@@ -45,6 +56,9 @@ func (r *Runner) Run(playbook Playbook) error {
 // ExecutePlay 执行单个 Play
 func (r *Runner) ExecutePlay(play *Play) error {
 	r.logger.PlayHeader(play.Name)
+
+	// 初始化 notified handlers 跟踪
+	r.notifiedHandlers = make(map[string]bool)
 
 	// 设置 Play 变量
 	r.varMgr.SetPlayVars(play.Vars)
@@ -128,6 +142,20 @@ func (r *Runner) ExecutePlay(play *Play) error {
 				r.varMgr.SetHostVar(result.Host, task.Register, result.Data)
 			}
 
+			// 处理 ansible_facts (set_fact 模块)
+			if ansibleFacts, ok := result.Data["ansible_facts"].(map[string]interface{}); ok {
+				for key, value := range ansibleFacts {
+					r.varMgr.SetHostVar(result.Host, key, value)
+				}
+			}
+
+			// 处理 notify（只在任务 changed 时通知 handler）
+			if result.Changed && len(task.Notify) > 0 {
+				for _, handlerName := range task.Notify {
+					r.notifiedHandlers[handlerName] = true
+				}
+			}
+
 			// 处理失败
 			if result.Failed && !task.IgnoreErrors {
 				failedHosts = append(failedHosts, result.Host)
@@ -153,6 +181,13 @@ func (r *Runner) ExecutePlay(play *Play) error {
 		}
 	}
 
+	// 执行所有被通知的 handlers
+	if len(play.Handlers) > 0 && len(r.notifiedHandlers) > 0 {
+		if err := r.executeHandlers(play.Handlers, activeHosts, stats); err != nil {
+			return fmt.Errorf("handler execution failed: %w", err)
+		}
+	}
+
 	// 打印 Play Recap
 	r.printPlayRecap(play.Name, stats)
 
@@ -172,6 +207,16 @@ func (r *Runner) executeTask(task *Task, host *inventory.Host) *TaskResult {
 		Host: host.Name,
 		Task: task.Name,
 		Data: make(map[string]interface{}),
+	}
+
+	// 如果是 block 任务，执行 block 逻辑
+	if task.TaskBlock != nil {
+		return r.executeBlock(task, host)
+	}
+
+	// 如果有循环，执行循环逻辑
+	if len(task.Loop) > 0 {
+		return r.executeTaskWithLoop(task, host)
 	}
 
 	// 获取主机变量上下文
@@ -198,6 +243,59 @@ func (r *Runner) executeTask(task *Task, host *inventory.Host) *TaskResult {
 		result.Failed = true
 		result.Msg = fmt.Sprintf("failed to render args: %v", err)
 		return result
+	}
+
+	// 特殊处理 debug 模块的 var 参数
+	if task.Module == "debug" {
+		if varName, ok := renderedArgs["var"].(string); ok {
+			// 从 context 中获取变量值
+			if varValue, exists := context[varName]; exists {
+				// 将变量值格式化为字符串并设置为 msg
+				renderedArgs["msg"] = fmt.Sprintf("%s: %v", varName, varValue)
+			} else {
+				renderedArgs["msg"] = fmt.Sprintf("%s: VARIABLE IS NOT DEFINED!", varName)
+			}
+			// 删除 var 参数，使用 msg 参数
+			delete(renderedArgs, "var")
+		}
+	}
+
+	// 特殊处理 template 模块 - 读取并渲染模板文件
+	if task.Module == "template" {
+		srcInterface, ok := renderedArgs["src"]
+		if !ok {
+			result.Failed = true
+			result.Msg = "template module requires 'src' argument"
+			return result
+		}
+
+		src, ok := srcInterface.(string)
+		if !ok {
+			result.Failed = true
+			result.Msg = "template module 'src' must be a string"
+			return result
+		}
+
+		// 读取本地模板文件（控制节点）
+		templateContent, err := os.ReadFile(src)
+		if err != nil {
+			result.Failed = true
+			result.Msg = fmt.Sprintf("failed to read template file '%s': %v", src, err)
+			return result
+		}
+
+		// 渲染模板内容
+		renderedContent, err := r.template.RenderString(string(templateContent), context)
+		if err != nil {
+			result.Failed = true
+			result.Msg = fmt.Sprintf("failed to render template: %v", err)
+			return result
+		}
+
+		// 将渲染后的内容添加到参数中
+		renderedArgs["_rendered_content"] = renderedContent
+		// 删除 src 参数（模块不需要它）
+		delete(renderedArgs, "src")
 	}
 
 	// 规范化参数
@@ -237,13 +335,123 @@ func (r *Runner) executeTask(task *Task, host *inventory.Host) *TaskResult {
 		"stderr":      modResult.Stderr,
 	}
 
+	// 如果有 ansible_facts，添加到 Data 中
+	if len(modResult.AnsibleFacts) > 0 {
+		result.Data["ansible_facts"] = modResult.AnsibleFacts
+	}
+
+	// 评估 failed_when 条件
+	if task.FailedWhen != "" {
+		// 创建包含任务结果的上下文
+		evalContext := make(map[string]interface{})
+		for k, v := range context {
+			evalContext[k] = v
+		}
+		// 添加任务结果到上下文中
+		// 支持两种方式访问：直接使用 rc、stdout 等，或通过 register 变量名访问
+		evalContext["rc"] = modResult.RC
+		evalContext["stdout"] = modResult.Stdout
+		evalContext["stderr"] = modResult.Stderr
+		evalContext["changed"] = modResult.Changed
+		evalContext["failed"] = modResult.Failed
+
+		// 如果有 register，也添加为变量（用于 register_var.rc 这样的访问）
+		if task.Register != "" {
+			evalContext[task.Register] = result.Data
+		}
+
+		shouldFail, err := r.template.EvaluateCondition(task.FailedWhen, evalContext)
+		if err != nil {
+			result.Failed = true
+			result.Msg = fmt.Sprintf("failed to evaluate failed_when: %v", err)
+			return result
+		}
+		result.Failed = shouldFail
+		if shouldFail {
+			result.Msg = fmt.Sprintf("failed due to failed_when condition: %s", task.FailedWhen)
+		}
+	}
+
+	// 评估 changed_when 条件
+	if task.ChangedWhen != "" {
+		// 创建包含任务结果的上下文
+		evalContext := make(map[string]interface{})
+		for k, v := range context {
+			evalContext[k] = v
+		}
+		evalContext["rc"] = modResult.RC
+		evalContext["stdout"] = modResult.Stdout
+		evalContext["stderr"] = modResult.Stderr
+		evalContext["changed"] = modResult.Changed
+		evalContext["failed"] = modResult.Failed
+
+		// 如果有 register，也添加为变量
+		if task.Register != "" {
+			evalContext[task.Register] = result.Data
+		}
+
+		shouldChange, err := r.template.EvaluateCondition(task.ChangedWhen, evalContext)
+		if err != nil {
+			result.Failed = true
+			result.Msg = fmt.Sprintf("failed to evaluate changed_when: %v", err)
+			return result
+		}
+		result.Changed = shouldChange
+	}
+
 	return result
 }
 
 // printTaskResult 打印任务结果
 func (r *Runner) printTaskResult(result *TaskResult) {
-	status := "ok"
-	r.logger.TaskResult(status, result.Host, result.Msg, result.Changed, result.Failed, result.Skipped)
+	// 检查是否是循环结果
+	if results, ok := result.Data["results"].([]map[string]interface{}); ok && len(results) > 0 {
+		// 这是循环任务，显示每个迭代的结果
+		for _, iterResult := range results {
+			// 获取循环变量名
+			loopVar := "item"
+			if lv, ok := iterResult["ansible_loop_var"].(string); ok {
+				loopVar = lv
+			}
+
+			// 获取循环项的值
+			itemValue := iterResult[loopVar]
+
+			// 构建消息
+			msg := ""
+			if iterMsg, ok := iterResult["msg"].(string); ok && iterMsg != "" {
+				msg = iterMsg
+			} else if iterResult["stdout"] != nil && iterResult["stdout"] != "" {
+				msg = fmt.Sprintf("%v", iterResult["stdout"])
+			}
+
+			// 显示状态
+			changed := false
+			if c, ok := iterResult["changed"].(bool); ok {
+				changed = c
+			}
+			failed := false
+			if f, ok := iterResult["failed"].(bool); ok {
+				failed = f
+			}
+			skipped := false
+			if s, ok := iterResult["skipped"].(bool); ok {
+				skipped = s
+			}
+
+			// 格式化输出 "item=value => msg"
+			displayMsg := fmt.Sprintf("item=%v", itemValue)
+			if msg != "" {
+				displayMsg = fmt.Sprintf("%s => %s", displayMsg, msg)
+			}
+
+			r.logger.TaskResult("ok", result.Host, displayMsg, changed, failed, skipped)
+		}
+	} else {
+		// 普通任务结果
+		status := "ok"
+		r.logger.TaskResult(status, result.Host, result.Msg, result.Changed, result.Failed, result.Skipped)
+	}
 }
 
 // printPlayRecap 打印 Play 总结
@@ -259,4 +467,592 @@ func (r *Runner) printPlayRecap(playName string, stats map[string]*HostStats) {
 		}
 	}
 	r.logger.PlayRecap(loggerStats)
+}
+
+// executeHandlers 执行所有被通知的 handlers
+func (r *Runner) executeHandlers(handlers []Handler, hosts []*inventory.Host, stats map[string]*HostStats) error {
+	if len(handlers) == 0 || len(r.notifiedHandlers) == 0 {
+		return nil
+	}
+
+	// 打印 RUNNING HANDLER 标题
+	fmt.Println()
+	fmt.Println("RUNNING HANDLER", strings.Repeat("*", 60))
+
+	// 按 handlers 定义顺序执行（不是按通知顺序）
+	for _, handler := range handlers {
+		// 检查是否被通知（通过名称或 listen topic）
+		notified := r.notifiedHandlers[handler.Name]
+		if handler.Listen != "" {
+			notified = notified || r.notifiedHandlers[handler.Listen]
+		}
+
+		if !notified {
+			continue
+		}
+
+		// 显示 handler 名称
+		handlerName := handler.Name
+		if handlerName == "" {
+			handlerName = handler.Module
+		}
+		r.logger.TaskHeader(handlerName)
+
+		// 并发执行 handler 任务
+		results := make(chan *TaskResult, len(hosts))
+		var wg sync.WaitGroup
+
+		for _, host := range hosts {
+			wg.Add(1)
+			go func(h *inventory.Host) {
+				defer wg.Done()
+				result := r.executeHandlerTask(&handler, h)
+				results <- result
+			}(host)
+		}
+
+		// 等待所有 handler 完成
+		go func() {
+			wg.Wait()
+			close(results)
+		}()
+
+		// 收集结果并更新统计
+		for result := range results {
+			// 显示结果
+			r.printTaskResult(result)
+
+			// 更新统计
+			hostStat := stats[result.Host]
+			if result.Failed {
+				hostStat.Failed++
+			} else if result.Skipped {
+				hostStat.Skipped++
+			} else {
+				hostStat.Ok++
+				if result.Changed {
+					hostStat.Changed++
+				}
+			}
+		}
+	}
+
+	fmt.Println()
+	return nil
+}
+
+// executeHandlerTask 在单个主机上执行 handler 任务
+func (r *Runner) executeHandlerTask(handler *Handler, host *inventory.Host) *TaskResult {
+	result := &TaskResult{
+		Host: host.Name,
+		Task: handler.Name,
+		Data: make(map[string]interface{}),
+	}
+
+	// 获取主机变量上下文
+	context := r.varMgr.GetContext(host.Name)
+
+	// 评估 when 条件
+	if handler.When != "" {
+		shouldRun, err := r.template.EvaluateCondition(handler.When, context)
+		if err != nil {
+			result.Failed = true
+			result.Msg = fmt.Sprintf("failed to evaluate when condition: %v", err)
+			return result
+		}
+		if !shouldRun {
+			result.Skipped = true
+			result.Msg = "skipped due to when condition"
+			return result
+		}
+	}
+
+	// 渲染模块参数
+	renderedArgs, err := r.template.RenderArgs(handler.ModuleArgs, context)
+	if err != nil {
+		result.Failed = true
+		result.Msg = fmt.Sprintf("failed to render args: %v", err)
+		return result
+	}
+
+	// 特殊处理 debug 模块的 var 参数
+	if handler.Module == "debug" {
+		if varName, ok := renderedArgs["var"].(string); ok {
+			// 从 context 中获取变量值
+			if varValue, exists := context[varName]; exists {
+				// 将变量值格式化为字符串并设置为 msg
+				renderedArgs["msg"] = fmt.Sprintf("%s: %v", varName, varValue)
+			} else {
+				renderedArgs["msg"] = fmt.Sprintf("%s: VARIABLE IS NOT DEFINED!", varName)
+			}
+			// 删除 var 参数，使用 msg 参数
+			delete(renderedArgs, "var")
+		}
+	}
+
+	// 规范化参数
+	normalizedArgs := NormalizeModuleArgs(handler.Module, renderedArgs)
+
+	// 建立连接
+	conn, err := r.connMgr.Connect(host)
+	if err != nil {
+		result.Failed = true
+		result.Msg = fmt.Sprintf("connection failed: %v", err)
+		result.Data["unreachable"] = true
+		return result
+	}
+	defer conn.Close()
+
+	// 执行模块
+	modResult, err := r.modExec.Execute(conn, handler.Module, normalizedArgs)
+	if err != nil {
+		result.Failed = true
+		result.Msg = err.Error()
+		return result
+	}
+
+	// 转换结果
+	result.Changed = modResult.Changed
+	result.Failed = modResult.Failed || modResult.Unreachable
+	result.Msg = modResult.Msg
+
+	// 将模块结果转换为 map
+	result.Data = map[string]interface{}{
+		"changed":     modResult.Changed,
+		"failed":      modResult.Failed,
+		"unreachable": modResult.Unreachable,
+		"msg":         modResult.Msg,
+		"rc":          modResult.RC,
+		"stdout":      modResult.Stdout,
+		"stderr":      modResult.Stderr,
+	}
+
+	// 如果有 ansible_facts，添加到 Data 中
+	if len(modResult.AnsibleFacts) > 0 {
+		result.Data["ansible_facts"] = modResult.AnsibleFacts
+	}
+
+	return result
+}
+
+// executeTaskWithLoop 执行带循环的任务
+func (r *Runner) executeTaskWithLoop(task *Task, host *inventory.Host) *TaskResult {
+	// 获取循环变量名和索引变量名
+	loopVar := "item"
+	indexVar := ""
+	var pause int
+	// label 用于简化输出显示，目前未实现，预留供将来使用
+	// var label string
+
+	if task.LoopControl != nil {
+		if task.LoopControl.LoopVar != "" {
+			loopVar = task.LoopControl.LoopVar
+		}
+		indexVar = task.LoopControl.IndexVar
+		pause = task.LoopControl.Pause
+		// label = task.LoopControl.Label
+	}
+
+	// 获取主机变量上下文
+	baseContext := r.varMgr.GetContext(host.Name)
+
+	// 评估循环列表（可能包含模板变量）
+	var loopItems []interface{}
+	for _, item := range task.Loop {
+		// 如果是字符串且包含模板语法，进行渲染
+		if strItem, ok := item.(string); ok && IsTemplateString(strItem) {
+			// 使用 RenderValue 获取原始值（可能是列表）
+			rendered, err := r.template.RenderValue(strItem, baseContext)
+			if err != nil {
+				// 渲染失败，返回错误
+				return &TaskResult{
+					Host:   host.Name,
+					Task:   task.Name,
+					Failed: true,
+					Msg:    fmt.Sprintf("failed to render loop item: %v", err),
+					Data:   make(map[string]interface{}),
+				}
+			}
+			// 如果渲染结果是列表，直接使用
+			if list, ok := rendered.([]interface{}); ok {
+				loopItems = list
+				break // 整个 loop 已经被展开，不需要继续
+			}
+			// 尝试 []map[string]interface{} 类型（register results 的情况）
+			if list, ok := rendered.([]map[string]interface{}); ok {
+				// 转换为 []interface{}
+				loopItems = make([]interface{}, len(list))
+				for i, v := range list {
+					loopItems[i] = v
+				}
+				break
+			}
+			loopItems = append(loopItems, rendered)
+		} else {
+			loopItems = append(loopItems, item)
+		}
+	}
+
+	// 存储所有迭代结果
+	results := make([]map[string]interface{}, 0, len(loopItems))
+	hasChanged := false
+	hasFailed := false
+	hasSkipped := false
+	allSkipped := true
+
+	// 遍历循环项
+	for idx, item := range loopItems {
+		// 创建循环上下文
+		loopContext := make(map[string]interface{})
+		for k, v := range baseContext {
+			loopContext[k] = v
+		}
+		loopContext[loopVar] = item
+		if indexVar != "" {
+			loopContext[indexVar] = idx
+		}
+
+		// 评估 when 条件（在循环上下文中）
+		if task.When != "" {
+			shouldRun, err := r.template.EvaluateCondition(task.When, loopContext)
+			if err != nil {
+				// when 条件评估失败
+				iterResult := map[string]interface{}{
+					"failed":           true,
+					"msg":              fmt.Sprintf("failed to evaluate when condition: %v", err),
+					loopVar:            item,
+					"ansible_loop_var": loopVar,
+				}
+				if indexVar != "" {
+					iterResult[indexVar] = idx
+				}
+				results = append(results, iterResult)
+				hasFailed = true
+				allSkipped = false
+				continue
+			}
+			if !shouldRun {
+				// 条件不满足，跳过
+				iterResult := map[string]interface{}{
+					"skipped":          true,
+					"skip_reason":      "Conditional result was False",
+					loopVar:            item,
+					"ansible_loop_var": loopVar,
+				}
+				if indexVar != "" {
+					iterResult[indexVar] = idx
+				}
+				results = append(results, iterResult)
+				hasSkipped = true
+				continue
+			}
+		}
+
+		allSkipped = false
+
+		// 渲染模块参数
+		renderedArgs, err := r.template.RenderArgs(task.ModuleArgs, loopContext)
+		if err != nil {
+			iterResult := map[string]interface{}{
+				"failed":           true,
+				"msg":              fmt.Sprintf("failed to render args: %v", err),
+				loopVar:            item,
+				"ansible_loop_var": loopVar,
+			}
+			if indexVar != "" {
+				iterResult[indexVar] = idx
+			}
+			results = append(results, iterResult)
+			hasFailed = true
+			continue
+		}
+
+		// 特殊处理 debug 模块的 var 参数
+		if task.Module == "debug" {
+			if varName, ok := renderedArgs["var"].(string); ok {
+				if varValue, exists := loopContext[varName]; exists {
+					renderedArgs["msg"] = fmt.Sprintf("%s: %v", varName, varValue)
+				} else {
+					renderedArgs["msg"] = fmt.Sprintf("%s: VARIABLE IS NOT DEFINED!", varName)
+				}
+				delete(renderedArgs, "var")
+			}
+		}
+
+		// 规范化参数
+		normalizedArgs := NormalizeModuleArgs(task.Module, renderedArgs)
+
+		// 建立连接
+		conn, err := r.connMgr.Connect(host)
+		if err != nil {
+			iterResult := map[string]interface{}{
+				"failed":           true,
+				"unreachable":      true,
+				"msg":              fmt.Sprintf("connection failed: %v", err),
+				loopVar:            item,
+				"ansible_loop_var": loopVar,
+			}
+			if indexVar != "" {
+				iterResult[indexVar] = idx
+			}
+			results = append(results, iterResult)
+			hasFailed = true
+			continue
+		}
+
+		// 执行模块
+		modResult, err := r.modExec.Execute(conn, task.Module, normalizedArgs)
+		conn.Close()
+
+		if err != nil {
+			iterResult := map[string]interface{}{
+				"failed":           true,
+				"msg":              err.Error(),
+				loopVar:            item,
+				"ansible_loop_var": loopVar,
+			}
+			if indexVar != "" {
+				iterResult[indexVar] = idx
+			}
+			results = append(results, iterResult)
+			hasFailed = true
+			continue
+		}
+
+		// 记录迭代结果
+		iterResult := map[string]interface{}{
+			"changed":          modResult.Changed,
+			"failed":           modResult.Failed,
+			"unreachable":      modResult.Unreachable,
+			"msg":              modResult.Msg,
+			"rc":               modResult.RC,
+			"stdout":           modResult.Stdout,
+			"stderr":           modResult.Stderr,
+			loopVar:            item,
+			"ansible_loop_var": loopVar,
+		}
+		if indexVar != "" {
+			iterResult[indexVar] = idx
+		}
+
+		// 如果有 ansible_facts，添加到结果中
+		if len(modResult.AnsibleFacts) > 0 {
+			iterResult["ansible_facts"] = modResult.AnsibleFacts
+			// 将 facts 设置到主机变量中
+			for key, value := range modResult.AnsibleFacts {
+				r.varMgr.SetHostVar(host.Name, key, value)
+			}
+		}
+
+		// 评估 failed_when 条件
+		if task.FailedWhen != "" {
+			evalContext := make(map[string]interface{})
+			for k, v := range loopContext {
+				evalContext[k] = v
+			}
+			evalContext["rc"] = modResult.RC
+			evalContext["stdout"] = modResult.Stdout
+			evalContext["stderr"] = modResult.Stderr
+			evalContext["changed"] = modResult.Changed
+			evalContext["failed"] = modResult.Failed
+
+			shouldFail, err := r.template.EvaluateCondition(task.FailedWhen, evalContext)
+			if err != nil {
+				iterResult["failed"] = true
+				iterResult["msg"] = fmt.Sprintf("failed to evaluate failed_when: %v", err)
+			} else if shouldFail {
+				iterResult["failed"] = true
+				iterResult["msg"] = fmt.Sprintf("failed due to failed_when condition: %s", task.FailedWhen)
+			}
+		}
+
+		// 评估 changed_when 条件
+		if task.ChangedWhen != "" {
+			evalContext := make(map[string]interface{})
+			for k, v := range loopContext {
+				evalContext[k] = v
+			}
+			evalContext["rc"] = modResult.RC
+			evalContext["stdout"] = modResult.Stdout
+			evalContext["stderr"] = modResult.Stderr
+			evalContext["changed"] = modResult.Changed
+			evalContext["failed"] = modResult.Failed
+
+			shouldChange, err := r.template.EvaluateCondition(task.ChangedWhen, evalContext)
+			if err != nil {
+				iterResult["failed"] = true
+				iterResult["msg"] = fmt.Sprintf("failed to evaluate changed_when: %v", err)
+			} else {
+				iterResult["changed"] = shouldChange
+			}
+		}
+
+		results = append(results, iterResult)
+
+		// 更新总体状态
+		if iterResult["changed"].(bool) {
+			hasChanged = true
+		}
+		if iterResult["failed"].(bool) && !task.IgnoreErrors {
+			hasFailed = true
+		}
+
+		// 如果配置了暂停，执行暂停
+		if pause > 0 && idx < len(loopItems)-1 {
+			fmt.Printf("  (pausing %d seconds between loop iterations)\n", pause)
+			// 这里使用 time.Sleep，但实际可能需要导入 time 包
+		}
+	}
+
+	// 构建循环任务的总体结果
+	result := &TaskResult{
+		Host:    host.Name,
+		Task:    task.Name,
+		Changed: hasChanged,
+		Failed:  hasFailed && !task.IgnoreErrors,
+		Skipped: allSkipped,
+		Data: map[string]interface{}{
+			"results": results,
+			"changed": hasChanged,
+			"failed":  hasFailed,
+			"skipped": hasSkipped,
+		},
+	}
+
+	// 如果有 register，保存 results 列表
+	// 这将在 ExecutePlay 中处理
+
+	// 设置消息
+	if allSkipped {
+		result.Msg = "All items skipped"
+	} else if hasFailed {
+		result.Msg = fmt.Sprintf("One or more items failed")
+	} else if hasChanged {
+		result.Msg = fmt.Sprintf("Loop completed with changes")
+	} else {
+		result.Msg = fmt.Sprintf("Loop completed")
+	}
+
+	return result
+}
+
+// executeBlock 执行 block/rescue/always 结构
+func (r *Runner) executeBlock(task *Task, host *inventory.Host) *TaskResult {
+	result := &TaskResult{
+		Host: host.Name,
+		Task: task.Name,
+		Data: make(map[string]interface{}),
+	}
+
+	// 获取主机变量上下文
+	context := r.varMgr.GetContext(host.Name)
+
+	// 评估 when 条件（block 级别）
+	if task.When != "" {
+		shouldRun, err := r.template.EvaluateCondition(task.When, context)
+		if err != nil {
+			result.Failed = true
+			result.Msg = fmt.Sprintf("failed to evaluate when condition: %v", err)
+			return result
+		}
+		if !shouldRun {
+			result.Skipped = true
+			result.Msg = "block skipped due to when condition"
+			return result
+		}
+	}
+
+	block := task.TaskBlock
+	var blockError error
+	var failedTask *Task
+	var failedResult *TaskResult
+
+	// 执行 block 部分的任务
+	for i := range block.Block {
+		taskResult := r.executeTask(&block.Block[i], host)
+
+		// 更新整体结果状态
+		if taskResult.Changed {
+			result.Changed = true
+		}
+
+		// 如果任务失败且不忽略错误，记录失败并跳出
+		if taskResult.Failed && !block.Block[i].IgnoreErrors {
+			blockError = fmt.Errorf("task failed: %s", taskResult.Msg)
+			failedTask = &block.Block[i]
+			failedResult = taskResult
+			break
+		}
+	}
+
+	// 如果 block 失败，执行 rescue 部分
+	if blockError != nil && len(block.Rescue) > 0 {
+		// 设置特殊变量 ansible_failed_task 和 ansible_failed_result
+		if failedTask != nil {
+			r.varMgr.SetHostVar(host.Name, "ansible_failed_task", map[string]interface{}{
+				"name": failedTask.Name,
+			})
+		}
+		if failedResult != nil {
+			r.varMgr.SetHostVar(host.Name, "ansible_failed_result", failedResult.Data)
+		}
+
+		// 执行 rescue 任务
+		rescueError := false
+		for i := range block.Rescue {
+			rescueResult := r.executeTask(&block.Rescue[i], host)
+
+			if rescueResult.Changed {
+				result.Changed = true
+			}
+
+			// 如果 rescue 任务失败，记录错误
+			if rescueResult.Failed && !block.Rescue[i].IgnoreErrors {
+				rescueError = true
+				result.Failed = true
+				result.Msg = fmt.Sprintf("rescue task failed: %s", rescueResult.Msg)
+				break
+			}
+		}
+
+		// 如果 rescue 成功执行（没有错误），则认为 block 已恢复
+		if !rescueError {
+			blockError = nil
+			result.Msg = "block recovered by rescue"
+		}
+	} else if blockError != nil {
+		// block 失败且没有 rescue
+		result.Failed = true
+		result.Msg = blockError.Error()
+	}
+
+	// 总是执行 always 部分（无论 block 成功或失败）
+	if len(block.Always) > 0 {
+		for i := range block.Always {
+			alwaysResult := r.executeTask(&block.Always[i], host)
+
+			if alwaysResult.Changed {
+				result.Changed = true
+			}
+
+			// always 部分的失败会覆盖之前的成功状态
+			if alwaysResult.Failed && !block.Always[i].IgnoreErrors {
+				result.Failed = true
+				result.Msg = fmt.Sprintf("always task failed: %s", alwaysResult.Msg)
+			}
+		}
+	}
+
+	// 如果没有设置消息，设置默认消息
+	if result.Msg == "" {
+		if result.Failed {
+			result.Msg = "block failed"
+		} else if result.Changed {
+			result.Msg = "block completed with changes"
+		} else {
+			result.Msg = "block completed"
+		}
+	}
+
+	return result
 }

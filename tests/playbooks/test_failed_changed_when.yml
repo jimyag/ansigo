@@ -1,0 +1,69 @@
+---
+- name: Test failed_when and changed_when
+  hosts: all
+  tasks:
+    # Test 1: failed_when based on return code
+    - name: Check if a file exists (will fail if not found)
+      command: ls /nonexistent/path
+      register: check_file
+      failed_when: check_file.rc == 0
+      ignore_errors: true
+
+    - name: Show check_file result
+      debug:
+        msg: "Previous task completed - failed_when prevented failure"
+
+    # Test 2: changed_when to suppress change status
+    - name: Command that normally shows as changed
+      command: echo "Hello World"
+      register: echo_result
+      changed_when: false
+
+    - name: Show echo result
+      debug:
+        var: echo_result
+
+    # Test 3: changed_when based on output
+    - name: Command with conditional change status
+      shell: echo "modified"
+      register: shell_result
+      changed_when: "'modified' in shell_result.stdout"
+
+    - name: Show shell result
+      debug:
+        msg: "Shell task marked as changed because output contains 'modified'"
+
+    # Test 4: failed_when with complex condition
+    - name: Check return code
+      command: /bin/true
+      register: true_result
+      failed_when: true_result.rc != 0
+
+    - name: Show true_result
+      debug:
+        msg: "Command succeeded with rc={{ true_result.rc }}"
+
+    # Test 5: changed_when always false
+    - name: Always not changed
+      command: date
+      changed_when: false
+
+    # Test 6: failed_when with string search
+    - name: Search for error in output
+      shell: echo "everything is fine"
+      register: search_result
+      failed_when: "'error' in search_result.stdout"
+
+    - name: Show search result
+      debug:
+        msg: "No errors found in output"
+
+    # Test 7: changed_when with rc check
+    - name: Mark as changed only on success
+      command: echo "success"
+      register: cmd_result
+      changed_when: cmd_result.rc == 0
+
+    - name: Show cmd result
+      debug:
+        msg: "Task marked as changed because rc was 0"

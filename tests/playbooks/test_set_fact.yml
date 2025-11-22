@@ -1,0 +1,30 @@
+---
+- name: Test set_fact module
+  hosts: all
+  tasks:
+    - name: Set a simple fact
+      set_fact:
+        my_custom_var: "Hello from set_fact"
+        another_var: 42
+
+    - name: Use the set fact in debug
+      debug:
+        msg: "Custom variable is: {{ my_custom_var }}, number is: {{ another_var }}"
+
+    - name: Set a fact with dynamic value
+      set_fact:
+        hostname_upper: "{{ inventory_hostname | upper }}"
+
+    - name: Show the dynamic fact
+      debug:
+        msg: "Uppercase hostname: {{ hostname_upper }}"
+
+    - name: Set conditional fact
+      set_fact:
+        is_production: false
+      when: inventory_hostname != "production-server"
+
+    - name: Show conditional fact (should skip on production-server)
+      debug:
+        msg: "Is production: {{ is_production }}"
+      when: is_production is defined

@@ -17,6 +17,22 @@ type Play struct {
 	GatherFacts bool                   `yaml:"gather_facts"`
 	Vars        map[string]interface{} `yaml:"vars"`
 	Tasks       []Task                 `yaml:"tasks"`
+	Handlers    []Handler              `yaml:"handlers"`
+}
+
+// LoopControl 循环控制选项
+type LoopControl struct {
+	LoopVar  string `yaml:"loop_var"`  // 自定义循环变量名（默认 item）
+	IndexVar string `yaml:"index_var"` // 循环索引变量名
+	Label    string `yaml:"label"`     // 简化输出显示
+	Pause    int    `yaml:"pause"`     // 循环迭代之间暂停（秒）
+}
+
+// Block 代表任务块（用于错误处理）
+type Block struct {
+	Block  []Task // 主任务列表
+	Rescue []Task // 错误恢复任务
+	Always []Task // 总是执行的任务
 }
 
 // Task 代表一个任务
@@ -26,6 +42,22 @@ type Task struct {
 	ModuleArgs   map[string]interface{}
 	Register     string
 	When         string
+	FailedWhen   string
+	ChangedWhen  string
+	IgnoreErrors bool
+	Notify       []string      // 通知的 handler 名称列表
+	Loop         []interface{} // 循环列表
+	LoopControl  *LoopControl  // 循环控制选项
+	TaskBlock    *Block        // Block 结构（如果是 block 任务）
+}
+
+// Handler 代表一个 handler（本质是特殊的任务）
+type Handler struct {
+	Name         string
+	Listen       string // 可选，监听的 topic
+	Module       string
+	ModuleArgs   map[string]interface{}
+	When         string
 	IgnoreErrors bool
 }
 
@@ -33,10 +65,18 @@ type Task struct {
 func (t *Task) UnmarshalYAML(value *yaml.Node) error {
 	// 使用辅助结构解析已知字段
 	type TaskFields struct {
-		Name         string `yaml:"name"`
-		Register     string `yaml:"register"`
-		When         string `yaml:"when"`
-		IgnoreErrors bool   `yaml:"ignore_errors"`
+		Name         string       `yaml:"name"`
+		Register     string       `yaml:"register"`
+		When         string       `yaml:"when"`
+		FailedWhen   string       `yaml:"failed_when"`
+		ChangedWhen  string       `yaml:"changed_when"`
+		IgnoreErrors bool         `yaml:"ignore_errors"`
+		Notify       interface{}  `yaml:"notify"`       // 可以是字符串或列表
+		Loop         interface{}  `yaml:"loop"`         // 循环列表（可以是列表或模板字符串）
+		LoopControl  *LoopControl `yaml:"loop_control"` // 循环控制
+		Block        []Task       `yaml:"block"`        // Block 任务列表
+		Rescue       []Task       `yaml:"rescue"`       // Rescue 任务列表
+		Always       []Task       `yaml:"always"`       // Always 任务列表
 	}
 
 	var fields TaskFields
@@ -47,15 +87,66 @@ func (t *Task) UnmarshalYAML(value *yaml.Node) error {
 	t.Name = fields.Name
 	t.Register = fields.Register
 	t.When = fields.When
+	t.FailedWhen = fields.FailedWhen
+	t.ChangedWhen = fields.ChangedWhen
 	t.IgnoreErrors = fields.IgnoreErrors
+	t.LoopControl = fields.LoopControl
 	t.ModuleArgs = make(map[string]interface{})
+
+	// 检查是否是 block 任务
+	if len(fields.Block) > 0 {
+		t.TaskBlock = &Block{
+			Block:  fields.Block,
+			Rescue: fields.Rescue,
+			Always: fields.Always,
+		}
+		// Block 任务不需要 Module
+		return nil
+	}
+
+	// 解析 loop 字段（可以是列表或模板字符串）
+	if fields.Loop != nil {
+		switch l := fields.Loop.(type) {
+		case []interface{}:
+			t.Loop = l
+		case string:
+			// 如果是字符串（如 "{{ packages }}"），存储为单元素列表
+			t.Loop = []interface{}{l}
+		default:
+			// 其他类型也转为列表
+			t.Loop = []interface{}{l}
+		}
+	}
+
+	// 解析 notify 字段（支持字符串或列表）
+	if fields.Notify != nil {
+		switch n := fields.Notify.(type) {
+		case string:
+			t.Notify = []string{n}
+		case []interface{}:
+			t.Notify = make([]string, len(n))
+			for i, v := range n {
+				if s, ok := v.(string); ok {
+					t.Notify[i] = s
+				}
+			}
+		}
+	}
 
 	// 已知的标准字段
 	knownFields := map[string]bool{
 		"name":          true,
 		"register":      true,
 		"when":          true,
+		"failed_when":   true,
+		"changed_when":  true,
 		"ignore_errors": true,
+		"notify":        true,
+		"loop":          true,
+		"loop_control":  true,
+		"block":         true,
+		"rescue":        true,
+		"always":        true,
 	}
 
 	// 已知的模块列表
@@ -67,6 +158,8 @@ func (t *Task) UnmarshalYAML(value *yaml.Node) error {
 		"copy":     true,
 		"debug":    true,
 		"set_fact": true,
+		"file":     true,
+		"template": true,
 	}
 
 	// 遍历所有字段，查找模块名
@@ -110,6 +203,94 @@ func (t *Task) UnmarshalYAML(value *yaml.Node) error {
 
 	if t.Module == "" {
 		return fmt.Errorf("no module found in task: %s", t.Name)
+	}
+
+	return nil
+}
+
+// UnmarshalYAML 自定义 Handler 的 YAML 解析
+func (h *Handler) UnmarshalYAML(value *yaml.Node) error {
+	// 使用辅助结构解析已知字段
+	type HandlerFields struct {
+		Name         string `yaml:"name"`
+		Listen       string `yaml:"listen"`
+		When         string `yaml:"when"`
+		IgnoreErrors bool   `yaml:"ignore_errors"`
+	}
+
+	var fields HandlerFields
+	if err := value.Decode(&fields); err != nil {
+		return err
+	}
+
+	h.Name = fields.Name
+	h.Listen = fields.Listen
+	h.When = fields.When
+	h.IgnoreErrors = fields.IgnoreErrors
+	h.ModuleArgs = make(map[string]interface{})
+
+	// 已知的标准字段
+	knownFields := map[string]bool{
+		"name":          true,
+		"listen":        true,
+		"when":          true,
+		"ignore_errors": true,
+	}
+
+	// 已知的模块列表（与 Task 相同）
+	knownModules := map[string]bool{
+		"ping":     true,
+		"command":  true,
+		"shell":    true,
+		"raw":      true,
+		"copy":     true,
+		"debug":    true,
+		"set_fact": true,
+		"file":     true,
+		"template": true,
+	}
+
+	// 遍历所有字段，查找模块名
+	if value.Kind == yaml.MappingNode {
+		for i := 0; i < len(value.Content); i += 2 {
+			keyNode := value.Content[i]
+			valueNode := value.Content[i+1]
+
+			key := keyNode.Value
+
+			// 跳过已知字段
+			if knownFields[key] {
+				continue
+			}
+
+			// 检查是否是模块
+			if knownModules[key] {
+				h.Module = key
+
+				// 解析模块参数
+				switch valueNode.Kind {
+				case yaml.ScalarNode:
+					// 短格式: command: uptime
+					if valueNode.Value != "" {
+						h.ModuleArgs["_raw_params"] = valueNode.Value
+					}
+				case yaml.MappingNode:
+					// 长格式: command: {cmd: uptime}
+					var args map[string]interface{}
+					if err := valueNode.Decode(&args); err != nil {
+						return fmt.Errorf("failed to parse module args: %w", err)
+					}
+					h.ModuleArgs = args
+				default:
+					return fmt.Errorf("unsupported module args format for module %s", key)
+				}
+				break
+			}
+		}
+	}
+
+	if h.Module == "" {
+		return fmt.Errorf("no module found in handler: %s", h.Name)
 	}
 
 	return nil

@@ -1,0 +1,24 @@
+---
+# 简单测试循环与 register
+- name: Test Loop with Register - Simple
+  hosts: all
+  tasks:
+    # 测试 1: 循环中使用 register
+    - name: Loop with register
+      debug:
+        msg: "Item {{ item }}"
+      loop:
+        - one
+        - two
+        - three
+      register: loop_results
+
+    # 测试 2: 显示 results 数量
+    - name: Show results count
+      debug:
+        msg: "Total results:{{ loop_results.results | length }}, Changed: {{ loop_results.changed }}"
+
+    # 测试 3: 显示第一个结果
+    - name: Show first result
+      debug:
+        msg: "First item was: {{ loop_results.results[0].item }}"

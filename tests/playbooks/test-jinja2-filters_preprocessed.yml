@@ -1,0 +1,101 @@
+---
+- name: Jinja2 Filters and Features Test
+  hosts: all
+  gather_facts: no
+  vars:
+    app_name: "myapp"
+    app_version: "1.2.3"
+    environment: "production"
+    config:
+      port: 8080
+      host: "0.0.0.0"
+      debug: false
+  tasks:
+    # Test 1: 基本变量替换
+    - name: Test basic variable substitution
+      debug:
+        msg: "Application {{ app_name }} version {{ app_version }}"
+
+    # Test 2: 字符串过滤器 - upper/lower
+    - name: Test string filters
+      debug:
+        msg: "{{ app_name | upper }} - {{ environment | lower }}"
+
+    # Test 3: 字符串连接（使用 ~ 操作符）
+    - name: Test string concatenation
+      debug:
+        msg: "Full version: {{ app_name }}{{ '-' }}{{ app_version }}"
+
+    # Test 4: 嵌套变量访问
+    - name: Test nested variable access
+      debug:
+        msg: "Server listening on {{ config.host }}:{{ config.port }}"
+
+    # Test 5: 条件表达式（三元运算符）
+    - name: Test conditional expression
+      debug:
+        msg: "Debug mode is {% if config.debug %}{{ 'enabled' }}{% else %}{{ 'disabled' }}{% endif %}"
+
+    # Test 6: 条件判断 - 等于
+    - name: This runs in production
+      debug:
+        msg: "Running in production environment"
+      when: environment == 'production'
+
+    # Test 7: 条件判断 - 不等于
+    - name: This should be skipped
+      debug:
+        msg: "This is development"
+      when: environment != 'production'
+
+    # Test 8: 布尔条件
+    - name: Debug mode check
+      debug:
+        msg: "Debug is disabled"
+      when: not config.debug
+
+    # Test 9: 数字比较
+    - name: Port range check
+      debug:
+        msg: "Port is in valid range"
+      when: config.port > 1024 and config.port < 65535
+
+    # Test 10: 获取主机名并测试
+    - name: Get hostname
+      command: hostname
+      register: hostname_result
+
+    - name: Check hostname
+      debug:
+        msg: "Hostname: {{ hostname_result.stdout }}"
+
+    # Test 11: 字符串长度
+    - name: Check hostname length
+      debug:
+        msg: "Hostname has {{ hostname_result.stdout | length }} characters"
+
+    # Test 12: 组合过滤器
+    - name: Test combined filters
+      debug:
+        msg: "{{ (app_name ~ '-' ~ app_version) | upper }}"
+
+    # Test 13: 三元运算符
+    - name: Test ternary operator
+      debug:
+        msg: "Environment type: {% if environment == 'production' %}{{ 'prod' }}{% else %}{{ 'dev' }}{% endif %}"
+
+    # Test 14: 复杂条件（多个 and/or）
+    - name: Complex condition test
+      debug:
+        msg: "All conditions met"
+      when: (environment == 'production' or environment == 'staging') and config.port == 8080
+
+    # Test 15: 字符串方法
+    - name: Test string operations
+      debug:
+        msg: "{{ app_name | title }} application"
+
+    # Test 16: 数学运算
+    - name: Test math in template
+      debug:
+        msg: "Next port would be {{ config.port + 1 }}"

@@ -1,0 +1,133 @@
+---
+# Template 模块功能测试
+- name: Test Template Module
+  hosts: all
+  vars:
+    server_name: webserver01
+    port: 8080
+    environment: production
+    db_host: localhost
+    db_port: 5432
+    db_name: myapp_db
+    enable_cache: true
+    cache_ttl: 7200
+    hosts:
+      - web01.example.com
+      - web02.example.com
+      - web03.example.com
+    username: admin
+    app_name: AnsiGo Test
+    role: administrator
+    app_servers:
+      - ip: 192.168.1.10
+        hostname: app01.local
+      - ip: 192.168.1.11
+        hostname: app02.local
+
+  tasks:
+    # 测试 1: 简单模板渲染
+    - name: Render simple template
+      template:
+        src: tests/templates/simple.txt.j2
+        dest: /tmp/ansigo_template_simple.txt
+        mode: "0644"
+      register: simple_result
+
+    - name: Show simple template result
+      debug:
+        msg: "Simple template: changed={{ simple_result.changed }}"
+
+    # 测试 2: 验证简单模板内容
+    - name: Read simple template content
+      shell: cat /tmp/ansigo_template_simple.txt
+      register: simple_content
+
+    - name: Verify simple template
+      debug:
+        msg: "Content: {{ simple_content.stdout }}"
+
+    # 测试 3: 复杂模板渲染（带循环和条件）
+    - name: Render config template
+      template:
+        src: tests/templates/config.conf.j2
+        dest: /tmp/ansigo_template_config.conf
+        mode: "0600"
+      register: config_result
+
+    - name: Show config template result
+      debug:
+        msg: "Config template: changed={{ config_result.changed }}"
+
+    # 测试 4: 验证配置文件内容
+    - name: Read config file
+      shell: cat /tmp/ansigo_template_config.conf
+      register: config_content
+
+    - name: Show config content
+      debug:
+        msg: "{{ config_content.stdout }}"
+
+    # 测试 5: 使用魔法变量的模板
+    - name: Render hosts template with magic vars
+      template:
+        src: tests/templates/hosts.txt.j2
+        dest: /tmp/ansigo_template_hosts.txt
+        mode: "0644"
+
+    - name: Verify hosts file
+      shell: cat /tmp/ansigo_template_hosts.txt
+      register: hosts_content
+
+    - name: Show hosts content
+      debug:
+        msg: "{{ hosts_content.stdout }}"
+
+    # 测试 6: 幂等性测试 - 再次渲染相同模板
+    - name: Render simple template again (should not change)
+      template:
+        src: tests/templates/simple.txt.j2
+        dest: /tmp/ansigo_template_simple.txt
+        mode: "0644"
+      register: idempotent_result
+
+    - name: Verify idempotency
+      debug:
+        msg: "Idempotent test: changed={{ idempotent_result.changed }} (should be false)"
+
+    # 测试 7: 修改权限
+    - name: Change template file permissions
+      template:
+        src: tests/templates/simple.txt.j2
+        dest: /tmp/ansigo_template_simple.txt
+        mode: "0400"
+      register: perms_result
+
+    - name: Show permissions change result
+      debug:
+        msg: "Permissions changed: {{ perms_result.changed }}"
+
+    # 测试 8: 验证权限已更改
+    - name: Check file permissions
+      shell: stat -c '%a' /tmp/ansigo_template_simple.txt
+      register: file_perms
+
+    - name: Show file permissions
+      debug:
+        msg: "File permissions: {{ file_perms.stdout }}"
+
+    # 测试 9: 清理测试文件
+    - name: Clean up test files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /tmp/ansigo_template_simple.txt
+        - /tmp/ansigo_template_config.conf
+        - /tmp/ansigo_template_hosts.txt
+
+    # 测试 10: 验证清理完成
+    - name: Verify cleanup
+      shell: test -f /tmp/ansigo_template_simple.txt
+      register: cleanup_check
+      failed_when: cleanup_check.rc == 0
+      changed_when: false

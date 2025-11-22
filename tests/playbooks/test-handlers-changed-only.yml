@@ -1,0 +1,25 @@
+---
+# 测试只有 changed 任务才 notify
+- name: Test Only Changed Tasks Notify
+  hosts: all
+  tasks:
+    - name: Task with changed=false (should NOT notify)
+      debug:
+        msg: "This task is not changed"
+      changed_when: false
+      notify: Should Not Run
+
+    - name: Task with changed=true (should notify)
+      debug:
+        msg: "This task is changed"
+      changed_when: true
+      notify: Should Run
+
+  handlers:
+    - name: Should Not Run
+      debug:
+        msg: "ERROR: This handler should NOT have been notified!"
+
+    - name: Should Run
+      debug:
+        msg: "SUCCESS: This handler was correctly notified"

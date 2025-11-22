@@ -3,18 +3,54 @@ package playbook
 import (
 	"fmt"
 	"strings"
+	"sync"
 
-	"github.com/flosch/pongo2/v6"
+	gojinja2 "github.com/kluctl/kluctl/lib/go-jinja2"
 )
 
-// Jinja2TemplateEngine 完整的 Jinja2 模板引擎（使用 pongo2）
+// Jinja2TemplateEngine 完整的 Jinja2 模板引擎（使用 go-jinja2）
 type Jinja2TemplateEngine struct {
-	// pongo2 不需要保持状态，每次渲染都是独立的
+	j2     *gojinja2.Jinja2
+	mu     sync.Mutex
+	inited bool
 }
 
 // NewJinja2TemplateEngine 创建 Jinja2 模板引擎
 func NewJinja2TemplateEngine() *Jinja2TemplateEngine {
 	return &Jinja2TemplateEngine{}
+}
+
+// init 延迟初始化 Jinja2 引擎
+func (te *Jinja2TemplateEngine) init() error {
+	te.mu.Lock()
+	defer te.mu.Unlock()
+
+	if te.inited {
+		return nil
+	}
+
+	// 创建 Jinja2 实例，使用单个渲染进程
+	j2, err := gojinja2.NewJinja2("ansigo", 1)
+	if err != nil {
+		return fmt.Errorf("failed to initialize Jinja2 engine: %w", err)
+	}
+
+	te.j2 = j2
+	te.inited = true
+	return nil
+}
+
+// Close 关闭 Jinja2 引擎
+func (te *Jinja2TemplateEngine) Close() error {
+	te.mu.Lock()
+	defer te.mu.Unlock()
+
+	if te.j2 != nil {
+		te.j2.Close()
+		te.j2 = nil
+		te.inited = false
+	}
+	return nil
 }
 
 // RenderString 渲染单个字符串
@@ -24,21 +60,67 @@ func (te *Jinja2TemplateEngine) RenderString(template string, context map[string
 		return template, nil
 	}
 
-	// 使用 pongo2 渲染
-	tpl, err := pongo2.FromString(template)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse template: %w", err)
+	// 确保引擎已初始化
+	if err := te.init(); err != nil {
+		return "", err
 	}
 
-	// 转换上下文为 pongo2.Context
-	pongoCtx := pongo2.Context{}
-	for k, v := range context {
-		pongoCtx[k] = v
+	// 使用 go-jinja2 渲染
+	// 注意：go-jinja2 完全支持 Jinja2 语法，包括波浪号操作符和内联条件表达式
+	result, err := te.j2.RenderString(template, gojinja2.WithGlobals(context))
+	if err != nil {
+		return "", fmt.Errorf("failed to render template: %w", err)
 	}
 
-	result, err := tpl.Execute(pongoCtx)
+	return result, nil
+}
+
+// RenderValue 渲染并返回原始值（可能是列表、字典等）
+func (te *Jinja2TemplateEngine) RenderValue(template string, context map[string]interface{}) (interface{}, error) {
+	// 如果没有模板语法，直接返回原字符串
+	if !strings.Contains(template, "{{") && !strings.Contains(template, "{%") {
+		return template, nil
+	}
+
+	// 确保引擎已初始化
+	if err := te.init(); err != nil {
+		return nil, err
+	}
+
+	// 对于简单的变量引用（如 "{{ packages }}" 或 "{{ var.field }}"），直接从 context 获取值
+	template = strings.TrimSpace(template)
+	if strings.HasPrefix(template, "{{") && strings.HasSuffix(template, "}}") {
+		// 提取变量表达式
+		varExpr := strings.TrimSpace(template[2 : len(template)-2])
+
+		// 处理简单变量名（没有过滤器、括号、运算符等）
+		if !strings.ContainsAny(varExpr, "|[]()+-*/%<>=!&") {
+			// 尝试解析点号访问（如 var.field.subfield）
+			parts := strings.Split(varExpr, ".")
+			value := context[parts[0]]
+
+			// 如果有嵌套访问
+			for i := 1; i < len(parts) && value != nil; i++ {
+				if m, ok := value.(map[string]interface{}); ok {
+					value = m[parts[i]]
+				} else {
+					// 无法继续访问，返回 nil
+					value = nil
+					break
+				}
+			}
+
+			if value != nil {
+				return value, nil
+			}
+		}
+	}
+
+	// 对于复杂表达式，先渲染为字符串再尝试解析
+	// 这种情况下可能丢失类型信息，但至少能工作
+	result, err := te.j2.RenderString(template, gojinja2.WithGlobals(context))
 	if err != nil {
-		return "", fmt.Errorf("failed to execute template: %w", err)
+		return nil, fmt.Errorf("failed to render template: %w", err)
 	}
 
 	return result, nil
@@ -92,6 +174,11 @@ func (te *Jinja2TemplateEngine) EvaluateCondition(condition string, context map[
 		return true, nil
 	}
 
+	// 确保引擎已初始化
+	if err := te.init(); err != nil {
+		return false, err
+	}
+
 	// Ansible 的 when 条件不需要 {{ }}
 	// 我们需要将其包装为 Jinja2 表达式
 	// 例如: "result.rc == 0" -> "{% if result.rc == 0 %}true{% else %}false{% endif %}"
@@ -99,18 +186,7 @@ func (te *Jinja2TemplateEngine) EvaluateCondition(condition string, context map[
 	// 构建一个简单的 if 模板来评估条件
 	template := fmt.Sprintf("{%% if %s %%}true{%% else %%}false{%% endif %%}", condition)
 
-	tpl, err := pongo2.FromString(template)
-	if err != nil {
-		return false, fmt.Errorf("failed to parse condition: %w", err)
-	}
-
-	// 转换上下文
-	pongoCtx := pongo2.Context{}
-	for k, v := range context {
-		pongoCtx[k] = v
-	}
-
-	result, err := tpl.Execute(pongoCtx)
+	result, err := te.j2.RenderString(template, gojinja2.WithGlobals(context))
 	if err != nil {
 		return false, fmt.Errorf("failed to evaluate condition: %w", err)
 	}
@@ -119,26 +195,13 @@ func (te *Jinja2TemplateEngine) EvaluateCondition(condition string, context map[
 }
 
 // RegisterCustomFilters 注册自定义过滤器
+// 注意：go-jinja2 使用真正的 Jinja2，因此自定义过滤器需要通过 Python 代码注册
+// 目前这个方法保留为空，因为标准 Jinja2 过滤器已经完全支持
 func (te *Jinja2TemplateEngine) RegisterCustomFilters() {
-	// Ansible 常用过滤器
-
-	// to_json - 转换为 JSON
-	pongo2.RegisterFilter("to_json", func(in *pongo2.Value, param *pongo2.Value) (*pongo2.Value, *pongo2.Error) {
-		// pongo2 内置了 jsonencode，我们可以直接使用
-		return in, nil
-	})
-
-	// to_yaml - 转换为 YAML（简化版）
-	pongo2.RegisterFilter("to_yaml", func(in *pongo2.Value, param *pongo2.Value) (*pongo2.Value, *pongo2.Error) {
-		return pongo2.AsValue(fmt.Sprintf("%v", in.Interface())), nil
-	})
-
-	// b64encode - Base64 编码（需要时可以实现）
-	// b64decode - Base64 解码
-
-	// regex_replace - 正则表达式替换（需要时可以实现）
-
-	// Note: pongo2 已经支持很多标准的 Jinja2 过滤器:
+	// go-jinja2 提供了完整的 Jinja2 环境，包括所有标准过滤器：
+	// - to_json, to_yaml
+	// - b64encode, b64decode
+	// - regex_replace, regex_search
 	// - default
 	// - length
 	// - upper, lower
@@ -146,6 +209,8 @@ func (te *Jinja2TemplateEngine) RegisterCustomFilters() {
 	// - join
 	// - first, last
 	// - etc.
+	//
+	// 如果需要自定义过滤器，需要通过 Jinja2Opt 在初始化时提供 Python 代码
 }
 
 // EvaluateExpression 评估表达式（用于更复杂的情况）

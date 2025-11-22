@@ -1,0 +1,109 @@
+---
+# Block/Rescue/Always 功能演示 - 模拟真实的错误处理场景
+- name: Deploy Application with Error Handling
+  hosts: all
+  vars:
+    app_port: 8080
+    config_valid: false
+
+  tasks:
+    # 场景 1: 部署应用 - 成功场景
+    - name: Deploy application successfully
+      block:
+        - name: Stop old application
+          debug:
+            msg: "Stopping application on port {{ app_port }}"
+
+        - name: Deploy new version
+          debug:
+            msg: "Deploying application v2.0"
+
+        - name: Start application
+          debug:
+            msg: "Starting application"
+      rescue:
+        - name: Rollback deployment
+          debug:
+            msg: "RESCUE: Rolling back to previous version"
+      always:
+        - name: Check application status
+          debug:
+            msg: "ALWAYS: Verifying application health"
+
+    # 场景 2: 配置验证失败 - 触发回滚
+    - name: Update configuration with validation
+      block:
+        - name: Backup current configuration
+          debug:
+            msg: "Backing up config to /backup/config.bak"
+
+        - name: Apply new configuration
+          debug:
+            msg: "Applying new configuration"
+
+        - name: Validate configuration
+          command: /bin/false
+          when: not config_valid
+
+        - name: Restart service
+          debug:
+            msg: "Restarting service with new config"
+      rescue:
+        - name: Restore backup configuration
+          debug:
+            msg: "RESCUE: Configuration invalid, restoring backup"
+
+        - name: Restart with old config
+          debug:
+            msg: "RESCUE: Restarting with previous configuration"
+      always:
+        - name: Verify service is running
+          debug:
+            msg: "ALWAYS: Service status check completed"
+
+    # 场景 3: 数据库迁移 - 带错误恢复
+    - name: Database migration with rollback
+      block:
+        - name: Create database backup
+          debug:
+            msg: "Creating database backup"
+
+        - name: Run database migrations
+          debug:
+            msg: "Running migration scripts"
+
+        - name: Verify data integrity
+          debug:
+            msg: "Checking data integrity"
+      rescue:
+        - name: Restore database from backup
+          debug:
+            msg: "RESCUE: Migration failed, restoring from backup"
+
+        - name: Log migration failure
+          debug:
+            msg: "RESCUE: Logged migration error for review"
+      always:
+        - name: Clean up temporary files
+          debug:
+            msg: "ALWAYS: Removing temporary migration files"
+
+        - name: Send notification
+          debug:
+            msg: "ALWAYS: Sending status notification to team"
+
+    # 场景 4: 条件 Block - 只在生产环境执行
+    - name: Production-only security hardening
+      block:
+        - name: Apply security patches
+          debug:
+            msg: "Applying security patches"
+
+        - name: Update firewall rules
+          debug:
+            msg: "Updating firewall configuration"
+      when: false  # 模拟非生产环境
+      always:
+        - name: Audit log
+          debug:
+            msg: "ALWAYS: Recording security audit"

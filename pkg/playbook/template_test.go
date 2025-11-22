@@ -6,6 +6,7 @@ import (
 
 func TestJinja2TemplateEngine_RenderString(t *testing.T) {
 	engine := NewJinja2TemplateEngine()
+	defer engine.Close() // 确保释放资源
 
 	tests := []struct {
 		name     string
@@ -58,7 +59,7 @@ func TestJinja2TemplateEngine_RenderString(t *testing.T) {
 			name:     "for loop",
 			template: "{% for item in items %}{{ item }}{% if not loop.last %},{% endif %}{% endfor %}",
 			context:  map[string]interface{}{"items": []interface{}{"a", "b", "c"}},
-			want:     "a,b,c,",
+			want:     "a,b,c",
 			wantErr:  false,
 		},
 		{
@@ -107,6 +108,7 @@ func TestJinja2TemplateEngine_RenderString(t *testing.T) {
 
 func TestJinja2TemplateEngine_EvaluateCondition(t *testing.T) {
 	engine := NewJinja2TemplateEngine()
+	defer engine.Close() // 确保释放资源
 
 	tests := []struct {
 		name      string
@@ -210,6 +212,7 @@ func TestJinja2TemplateEngine_EvaluateCondition(t *testing.T) {
 
 func TestJinja2TemplateEngine_RenderArgs(t *testing.T) {
 	engine := NewJinja2TemplateEngine()
+	defer engine.Close() // 确保释放资源
 
 	tests := []struct {
 		name    string
@@ -286,6 +289,118 @@ func TestJinja2TemplateEngine_RenderArgs(t *testing.T) {
 						}
 					}
 				}
+			}
+		})
+	}
+}
+
+// TestJinja2TemplateEngine_TildeOperator 测试波浪号操作符（Jinja2 字符串连接）
+func TestJinja2TemplateEngine_TildeOperator(t *testing.T) {
+	engine := NewJinja2TemplateEngine()
+	defer engine.Close()
+
+	tests := []struct {
+		name     string
+		template string
+		context  map[string]interface{}
+		want     string
+		wantErr  bool
+	}{
+		{
+			name:     "simple tilde",
+			template: "{{ firstname ~ ' ' ~ lastname }}",
+			context:  map[string]interface{}{"firstname": "John", "lastname": "Doe"},
+			want:     "John Doe",
+			wantErr:  false,
+		},
+		{
+			name:     "tilde with string literals",
+			template: "{{ 'hello' ~ ' ' ~ 'world' }}",
+			context:  map[string]interface{}{},
+			want:     "hello world",
+			wantErr:  false,
+		},
+		{
+			name:     "tilde for dynamic variable name",
+			template: "{{ 'ansible_' ~ interface }}",
+			context:  map[string]interface{}{"interface": "eth0"},
+			want:     "ansible_eth0",
+			wantErr:  false,
+		},
+		{
+			name:     "tilde with filter",
+			template: "{{ (app_name ~ '-' ~ version) | upper }}",
+			context:  map[string]interface{}{"app_name": "myapp", "version": "1.0.0"},
+			want:     "MYAPP-1.0.0",
+			wantErr:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := engine.RenderString(tt.template, tt.context)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("RenderString() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("RenderString() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestJinja2TemplateEngine_InlineConditional 测试内联条件表达式
+func TestJinja2TemplateEngine_InlineConditional(t *testing.T) {
+	engine := NewJinja2TemplateEngine()
+	defer engine.Close()
+
+	tests := []struct {
+		name     string
+		template string
+		context  map[string]interface{}
+		want     string
+		wantErr  bool
+	}{
+		{
+			name:     "inline conditional - true",
+			template: "{{ 'enabled' if debug else 'disabled' }}",
+			context:  map[string]interface{}{"debug": true},
+			want:     "enabled",
+			wantErr:  false,
+		},
+		{
+			name:     "inline conditional - false",
+			template: "{{ 'enabled' if debug else 'disabled' }}",
+			context:  map[string]interface{}{"debug": false},
+			want:     "disabled",
+			wantErr:  false,
+		},
+		{
+			name:     "inline conditional with variables",
+			template: "Status: {{ 'ON' if status == 'active' else 'OFF' }}",
+			context:  map[string]interface{}{"status": "active"},
+			want:     "Status: ON",
+			wantErr:  false,
+		},
+		{
+			name:     "inline conditional with filter",
+			template: "{{ ('yes' if enabled else 'no') | upper }}",
+			context:  map[string]interface{}{"enabled": true},
+			want:     "YES",
+			wantErr:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := engine.RenderString(tt.template, tt.context)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("RenderString() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("RenderString() = %v, want %v", got, tt.want)
 			}
 		})
 	}

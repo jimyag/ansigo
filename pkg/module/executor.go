@@ -31,6 +31,14 @@ func (e *Executor) Execute(conn *connection.Connection, moduleName string, args 
 		return e.executeCopy(conn, args)
 	case "debug":
 		return e.executeDebug(args)
+	case "set_fact":
+		return e.executeSetFact(args)
+	case "file":
+		fileModule := &FileModule{}
+		return fileModule.Execute(conn, args)
+	case "template":
+		templateModule := &TemplateModule{}
+		return templateModule.Execute(conn, args)
 	default:
 		return nil, fmt.Errorf("unsupported module: %s", moduleName)
 	}
@@ -276,13 +284,11 @@ func (e *Executor) executeCopy(conn *connection.Connection, args map[string]inte
 // executeDebug 执行 debug 模块
 func (e *Executor) executeDebug(args map[string]interface{}) (*Result, error) {
 	// debug 模块用于输出调试信息，不需要连接
+	// var 参数已经在 runner 中处理并转换为 msg
 	var msg string
 
 	if msgArg, ok := args["msg"].(string); ok {
 		msg = msgArg
-	} else if varArg, ok := args["var"].(string); ok {
-		// var 参数用于打印变量值
-		msg = fmt.Sprintf("%s: %v", varArg, args[varArg])
 	} else {
 		msg = "Debug output"
 	}
@@ -291,6 +297,27 @@ func (e *Executor) executeDebug(args map[string]interface{}) (*Result, error) {
 		Changed: false,
 		Msg:     msg,
 	}, nil
+}
+
+// executeSetFact 执行 set_fact 模块
+// set_fact 用于在 playbook 执行过程中动态设置变量
+func (e *Executor) executeSetFact(args map[string]interface{}) (*Result, error) {
+	// set_fact 模块不需要连接，它只是设置变量
+	// 所有传入的参数都会被设置为 facts
+
+	result := &Result{
+		Changed: false, // set_fact 不改变系统状态
+		Msg:     "Facts set successfully",
+	}
+
+	// 将所有参数作为 ansible_facts 返回
+	// 这些 facts 会被 runner 注册到变量管理器中
+	result.AnsibleFacts = make(map[string]interface{})
+	for key, value := range args {
+		result.AnsibleFacts[key] = value
+	}
+
+	return result, nil
 }
 
 // shellQuote 对 shell 命令进行引号转义

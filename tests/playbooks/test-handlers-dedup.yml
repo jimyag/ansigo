@@ -1,0 +1,27 @@
+---
+# 测试 Handler 去重机制
+- name: Test Handler Deduplication
+  hosts: all
+  tasks:
+    - name: Notify handler multiple times - iteration 1
+      debug:
+        msg: "Iteration 1"
+      changed_when: true
+      notify: Restart Service
+
+    - name: Notify handler multiple times - iteration 2
+      debug:
+        msg: "Iteration 2"
+      changed_when: true
+      notify: Restart Service
+
+    - name: Notify handler multiple times - iteration 3
+      debug:
+        msg: "Iteration 3"
+      changed_when: true
+      notify: Restart Service
+
+  handlers:
+    - name: Restart Service
+      debug:
+        msg: "Service restarted (should appear only ONCE per host)"

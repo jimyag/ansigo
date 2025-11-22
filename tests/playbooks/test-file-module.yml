@@ -1,0 +1,80 @@
+---
+# File 模块功能测试
+- name: Test File Module
+  hosts: all
+  vars:
+    test_dir: /tmp/ansigo_test
+    test_file: /tmp/ansigo_test/test.txt
+  tasks:
+    # 测试 1: 创建目录
+    - name: Create test directory
+      file:
+        path: "{{ test_dir }}"
+        state: directory
+        mode: "0755"
+
+    # 测试 2: Touch 创建文件
+    - name: Create test file
+      file:
+        path: "{{ test_file }}"
+        state: touch
+        mode: "0644"
+
+    # 测试 3: 验证目录存在
+    - name: Verify directory exists
+      file:
+        path: "{{ test_dir }}"
+        state: directory
+
+    # 测试 4: 验证文件存在
+    - name: Verify file exists
+      file:
+        path: "{{ test_file }}"
+        state: file
+
+    # 测试 5: 修改文件权限
+    - name: Change file permissions
+      file:
+        path: "{{ test_file }}"
+        mode: "0600"
+
+    # 测试 6: 创建符号链接
+    - name: Create symlink
+      file:
+        path: /tmp/ansigo_test/link.txt
+        src: "{{ test_file }}"
+        state: link
+
+    # 测试 7: 验证符号链接
+    - name: Verify symlink is correct
+      shell: readlink /tmp/ansigo_test/link.txt
+      register: link_target
+
+    - name: Show link target
+      debug:
+        msg: "Link points to: {{ link_target.stdout }}"
+
+    # 测试 8: 删除符号链接
+    - name: Remove symlink
+      file:
+        path: /tmp/ansigo_test/link.txt
+        state: absent
+
+    # 测试 9: 删除文件
+    - name: Remove test file
+      file:
+        path: "{{ test_file }}"
+        state: absent
+
+    # 测试 10: 删除目录
+    - name: Remove test directory
+      file:
+        path: "{{ test_dir }}"
+        state: absent
+
+    # 测试 11: 验证已删除
+    - name: Verify directory removed
+      shell: test -d {{ test_dir }}
+      register: dir_check
+      failed_when: dir_check.rc == 0
+      changed_when: false

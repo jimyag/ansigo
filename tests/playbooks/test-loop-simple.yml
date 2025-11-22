@@ -1,0 +1,24 @@
+---
+# 简单的循环功能测试
+- name: Test Basic Loop
+  hosts: all
+  tasks:
+    # 测试 1: 简单的静态列表循环
+    - name: Test simple loop with static list
+      debug:
+        msg: "Item: {{ item }}"
+      loop:
+        - apple
+        - banana
+        - cherry
+
+    # 测试 2: 使用变量的循环
+    - name: Test loop with variable
+      debug:
+        msg: "Package: {{ item }}"
+      loop: "{{ packages }}"
+  vars:
+    packages:
+      - nginx
+      - redis
+      - postgresql

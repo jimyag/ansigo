@@ -1,0 +1,45 @@
+---
+# 测试 Block Rescue 中的特殊变量
+- name: Test Block Rescue Variables
+  hosts: all
+  tasks:
+    - name: Block with rescue that uses failed variables
+      block:
+        - name: Task that will succeed first
+          debug:
+            msg: "This succeeds"
+
+        - name: Task that will fail
+          shell: echo "Error message" && exit 1
+
+        - name: This should not execute
+          debug:
+            msg: "Should not see this"
+      rescue:
+        - name: Show failed task name
+          debug:
+            msg: "Failed task: {{ ansible_failed_task.name }}"
+
+        - name: Show failed result
+          debug:
+            msg: "Failed result data available: {{ ansible_failed_result.failed }}"
+      always:
+        - name: Always cleanup
+          debug:
+            msg: "Cleanup completed"
+
+    # 测试 2: Block with when condition
+    - name: Block with when condition (will skip)
+      block:
+        - name: Should not run
+          debug:
+            msg: "Should be skipped"
+      when: false
+
+    # 测试 3: Block with when condition (will run)
+    - name: Block with when condition (will run)
+      block:
+        - name: Should run
+          debug:
+            msg: "This block runs"
+      when: true

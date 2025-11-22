@@ -63,6 +63,8 @@ func main() {
 
 	// 创建 runner 并执行
 	runner := playbook.NewRunner(invMgr)
+	defer runner.Close() // 确保释放模板引擎资源
+
 	if err := runner.Run(pb); err != nil {
 		logger.Errorf("Playbook execution failed: %v", err)
 		os.Exit(2)

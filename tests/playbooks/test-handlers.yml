@@ -1,0 +1,173 @@
+---
+# 测试 Handlers 和 Notify 功能
+# 参考: docs/ansible-documentation/docs/docsite/rst/playbook_guide/playbooks_handlers.rst
+
+- name: Test Handlers Basic Functionality
+  hosts: all
+  vars:
+    test_file_path: /tmp/ansigo-handler-test.txt
+  tasks:
+    - name: Task 1 - This will change and notify
+      shell: echo "Task 1 executed"
+      changed_when: true
+      notify: Handler 1
+
+    - name: Task 2 - This will not change (no notify)
+      debug:
+        msg: "Task 2 - no change, no notify"
+
+    - name: Task 3 - This will change and notify same handler
+      shell: echo "Task 3 executed"
+      changed_when: true
+      notify: Handler 1
+
+    - name: Task 4 - Notify multiple handlers
+      shell: echo "Task 4 executed"
+      changed_when: true
+      notify:
+        - Handler 1
+        - Handler 2
+
+    - name: Task 5 - Notify handler with listen
+      shell: echo "Task 5 executed"
+      changed_when: true
+      notify: restart services
+
+  handlers:
+    - name: Handler 1
+      debug:
+        msg: "Handler 1 executed (should run only once despite multiple notifies)"
+
+    - name: Handler 2
+      debug:
+        msg: "Handler 2 executed"
+
+    - name: Handler 3
+      listen: restart services
+      debug:
+        msg: "Handler 3 listening to 'restart services' topic"
+
+    - name: Handler 4
+      listen: restart services
+      debug:
+        msg: "Handler 4 also listening to 'restart services' topic"
+
+---
+# 测试 Handler 去重机制
+- name: Test Handler Deduplication
+  hosts: all
+  tasks:
+    - name: Notify handler multiple times - iteration 1
+      debug:
+        msg: "Iteration 1"
+      changed_when: true
+      notify: Restart Service
+
+    - name: Notify handler multiple times - iteration 2
+      debug:
+        msg: "Iteration 2"
+      changed_when: true
+      notify: Restart Service
+
+    - name: Notify handler multiple times - iteration 3
+      debug:
+        msg: "Iteration 3"
+      changed_when: true
+      notify: Restart Service
+
+  handlers:
+    - name: Restart Service
+      debug:
+        msg: "Service restarted (should appear only ONCE)"
+
+---
+# 测试 Handler 执行顺序（按定义顺序，非通知顺序）
+- name: Test Handler Execution Order
+  hosts: all
+  tasks:
+    # 按相反顺序 notify
+    - name: Notify Handler C first
+      debug:
+        msg: "Notifying C"
+      changed_when: true
+      notify: Handler C
+
+    - name: Notify Handler B second
+      debug:
+        msg: "Notifying B"
+      changed_when: true
+      notify: Handler B
+
+    - name: Notify Handler A third
+      debug:
+        msg: "Notifying A"
+      changed_when: true
+      notify: Handler A
+
+  handlers:
+    # Handlers 应该按这个顺序执行: A -> B -> C
+    # 不是按 notify 顺序: C -> B -> A
+    - name: Handler A
+      debug:
+        msg: "Handler A executed (should be 1st)"
+
+    - name: Handler B
+      debug:
+        msg: "Handler B executed (should be 2nd)"
+
+    - name: Handler C
+      debug:
+        msg: "Handler C executed (should be 3rd)"
+
+---
+# 测试 Handler with when 条件
+- name: Test Handlers with Conditions
+  hosts: all
+  vars:
+    should_run_handler: true
+    should_skip_handler: false
+  tasks:
+    - name: Notify conditional handlers
+      debug:
+        msg: "Notifying handlers"
+      changed_when: true
+      notify:
+        - Conditional Handler Run
+        - Conditional Handler Skip
+
+  handlers:
+    - name: Conditional Handler Run
+      debug:
+        msg: "This handler should run"
+      when: should_run_handler
+
+    - name: Conditional Handler Skip
+      debug:
+        msg: "This handler should be skipped"
+      when: should_skip_handler
+
+---
+# 测试只有 changed 任务才 notify
+- name: Test Only Changed Tasks Notify
+  hosts: all
+  tasks:
+    - name: Task with changed=false (should NOT notify)
+      debug:
+        msg: "This task is not changed"
+      changed_when: false
+      notify: Should Not Run
+
+    - name: Task with changed=true (should notify)
+      debug:
+        msg: "This task is changed"
+      changed_when: true
+      notify: Should Run
+
+  handlers:
+    - name: Should Not Run
+      debug:
+        msg: "ERROR: This handler should NOT have been notified!"
+
+    - name: Should Run
+      debug:
+        msg: "SUCCESS: This handler was correctly notified"

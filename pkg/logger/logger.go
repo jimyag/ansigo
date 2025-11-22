@@ -10,10 +10,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-var (
-	// Logger 全局日志实例
-	Logger zerolog.Logger
-)
+// Logger 全局日志实例
+var Logger zerolog.Logger
 
 // LogLevel 日志级别
 type LogLevel string

@@ -1,0 +1,29 @@
+---
+# 测试循环与 register 的配合
+- name: Test Loop with Register
+  hosts: all
+  tasks:
+    # 测试 1: 循环中使用 register
+    - name: Loop with register
+      shell: echo "Item {{ item }}"
+      loop:
+        - one
+        - two
+        - three
+      register: loop_results
+
+    # 测试 2: 显示 register 的 results 列表
+    - name: Show loop results
+      debug:
+        var: loop_results
+
+    # 测试 3: 遍历 results 列表
+    - name: Display each result
+      debug:
+        msg: "Result for {{ item.item }}: {{ item.stdout }}"
+      loop: "{{ loop_results.results }}"
+
+    # 测试 4: 检查 results 的结构
+    - name: Check results structure
+      debug:
+        msg: "Total results: {{ loop_results.results | length }}, Changed: {{ loop_results.changed }}"

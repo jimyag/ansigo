@@ -1,0 +1,64 @@
+---
+# 基本 Block/Rescue/Always 功能测试
+- name: Test Block Error Handling - Basic
+  hosts: all
+  tasks:
+    # 测试 1: 成功的 block（不触发 rescue）
+    - name: Successful block
+      block:
+        - name: Task 1 in block
+          debug:
+            msg: "Task 1 executing"
+
+        - name: Task 2 in block
+          debug:
+            msg: "Task 2 executing"
+      rescue:
+        - name: This should not run
+          debug:
+            msg: "RESCUE: This should not be shown"
+      always:
+        - name: Always runs
+          debug:
+            msg: "ALWAYS: Cleanup task"
+
+    # 测试 2: 失败的 block（触发 rescue）
+    - name: Failed block with rescue
+      block:
+        - name: Task that will succeed
+          debug:
+            msg: "This task succeeds"
+
+        - name: Task that will fail
+          command: /bin/false
+
+        - name: This should not run
+          debug:
+            msg: "Should be skipped"
+      rescue:
+        - name: Handle the error
+          debug:
+            msg: "RESCUE: Caught the error and recovering"
+      always:
+        - name: Cleanup always runs
+          debug:
+            msg: "ALWAYS: Cleanup regardless of failure"
+
+    # 测试 3: Block without rescue (失败会传播)
+    - name: Block without rescue
+      block:
+        - name: This will succeed
+          debug:
+            msg: "Before failure"
+
+        - name: This will fail
+          command: /bin/false
+          ignore_errors: true
+
+        - name: This continues because ignore_errors
+          debug:
+            msg: "After ignored failure"
+      always:
+        - name: Always executes
+          debug:
+            msg: "ALWAYS: Running cleanup"

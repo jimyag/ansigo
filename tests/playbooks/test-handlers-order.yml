@@ -1,0 +1,38 @@
+---
+# 测试 Handler 执行顺序（按定义顺序，非通知顺序）
+- name: Test Handler Execution Order
+  hosts: all
+  tasks:
+    # 按相反顺序 notify
+    - name: Notify Handler C first
+      debug:
+        msg: "Notifying C"
+      changed_when: true
+      notify: Handler C
+
+    - name: Notify Handler B second
+      debug:
+        msg: "Notifying B"
+      changed_when: true
+      notify: Handler B
+
+    - name: Notify Handler A third
+      debug:
+        msg: "Notifying A"
+      changed_when: true
+      notify: Handler A
+
+  handlers:
+    # Handlers 应该按这个顺序执行: A -> B -> C
+    # 不是按 notify 顺序: C -> B -> A
+    - name: Handler A
+      debug:
+        msg: "Handler A executed (should be 1st)"
+
+    - name: Handler B
+      debug:
+        msg: "Handler B executed (should be 2nd)"
+
+    - name: Handler C
+      debug:
+        msg: "Handler C executed (should be 3rd)"
