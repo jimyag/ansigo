@@ -1,0 +1,51 @@
+---
+- name: Test Jinja2 Loops and Iteration
+  hosts: all
+  gather_facts: no
+  vars:
+    packages:
+      - nginx
+      - redis
+      - postgresql
+    ports:
+      - 80
+      - 443
+      - 8080
+  tasks:
+    # Test 1: 简单循环输出
+    - name: Test loop in template
+      debug:
+        msg: "Packages: {% for pkg in packages %}{{ pkg }}{% if not loop.last %}, {% endif %}{% endfor %}"
+
+    # Test 2: 带索引的循环
+    - name: Test loop with index
+      debug:
+        msg: "Ports: {% for port in ports %}Port {{ loop.index }}: {{ port }}{% if not loop.last %}, {% endif %}{% endfor %}"
+
+    # Test 3: 条件循环
+    - name: Test conditional in loop
+      debug:
+        msg: "Large ports: {% for port in ports %}{% if port > 443 %}{{ port }} {% endif %}{% endfor %}"
+
+    # Test 4: join 过滤器
+    - name: Test join filter
+      debug:
+        msg: "All packages: {{ packages | join(', ') }}"
+
+    # Test 5: first 和 last 过滤器
+    - name: Test first and last filters
+      debug:
+        msg: "First package: {{ packages | first }}, Last package: {{ packages | last }}"
+
+    # Test 6: length 过滤器
+    - name: Test length filter
+      debug:
+        msg: "We have {{ packages | length }} packages and {{ ports | length }} ports"
+
+    # Test 7: 循环创建文件（演示用）
+    - name: Show how loop would work with file creation
+      debug:
+        msg: "Would create config for {{ item }}"
+      when: item == 'nginx'
+      loop: "{{ packages }}"
+      # Note: 这里我们只演示概念，因为 loop 关键字需要特殊处理

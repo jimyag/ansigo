@@ -1,0 +1,102 @@
+---
+# Test Suite: Loops and Iteration
+# Tests: loop keyword, with_items, item variable
+- name: Test Loops and Iteration
+  hosts: all
+  gather_facts: no
+  vars:
+    packages:
+      - nginx
+      - redis
+      - postgresql
+    users:
+      - name: alice
+        uid: 1001
+      - name: bob
+        uid: 1002
+      - name: charlie
+        uid: 1003
+    ports:
+      - 80
+      - 443
+      - 8080
+  tasks:
+    # Test 1: Simple loop with list
+    - name: Test simple loop
+      debug:
+        msg: "Package: {{ item }}"
+      loop: "{{ packages }}"
+
+    # Test 2: Loop with dict items
+    - name: Test loop with dict
+      debug:
+        msg: "User {{ item.name }} has UID {{ item.uid }}"
+      loop: "{{ users }}"
+
+    # Test 3: Loop with command execution
+    - name: Test loop with command
+      command: echo "Processing {{ item }}"
+      loop:
+        - item1
+        - item2
+        - item3
+      register: loop_results
+
+    # Test 4: Use loop results
+    - name: Display loop results
+      debug:
+        msg: "Result {{ item.item }}: {{ item.stdout }}"
+      loop: "{{ loop_results.results }}"
+
+    # Test 5: Loop with when condition
+    - name: Test loop with condition
+      debug:
+        msg: "Large port: {{ item }}"
+      loop: "{{ ports }}"
+      when: item > 80
+
+    # Test 6: Loop to create files
+    - name: Create multiple test files
+      shell: echo "Content for {{ item }}" > /tmp/loop-{{ item }}.txt
+      loop:
+        - file1
+        - file2
+        - file3
+
+    # Test 7: Loop to verify files
+    - name: Verify created files
+      command: cat /tmp/loop-{{ item }}.txt
+      loop:
+        - file1
+        - file2
+        - file3
+      register: file_contents
+
+    - name: Display file contents
+      debug:
+        msg: "{{ item.item }}: {{ item.stdout }}"
+      loop: "{{ file_contents.results }}"
+
+    # Test 8: Nested data loop
+    - name: Test complex loop
+      debug:
+        msg: "User {{ item.name }} (UID: {{ item.uid }})"
+      loop: "{{ users }}"
+      when: item.uid > 1001
+
+    # Test 9: Loop with copy module
+    - name: Copy files in loop
+      copy:
+        content: "File {{ item }}"
+        dest: /tmp/copy-loop-{{ item }}.txt
+      loop: [1, 2, 3]
+
+    # Test 10: Loop with variable interpolation
+    - name: Test loop with variables
+      debug:
+        msg: "{{ item | upper }}"
+      loop: "{{ packages }}"
+
+    # Cleanup
+    - name: Cleanup loop test files
+      shell: rm -f /tmp/loop-*.txt /tmp/copy-loop-*.txt

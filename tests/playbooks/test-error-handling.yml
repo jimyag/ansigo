@@ -1,0 +1,113 @@
+---
+# Test Suite: Error Handling
+# Tests: ignore_errors, failed_when, changed_when
+- name: Test Error Handling
+  hosts: all
+  gather_facts: no
+  tasks:
+    # Test 1: Normal task should succeed
+    - name: Test successful task
+      command: echo "success"
+      register: success_task
+
+    - name: Verify success
+      debug:
+        msg: "Task succeeded: {{ success_task.stdout }}"
+
+    # Test 2: Task that fails but continues with ignore_errors
+    - name: Test ignore_errors (command fails but playbook continues)
+      command: /bin/false
+      ignore_errors: yes
+      register: ignored_failure
+
+    - name: Verify playbook continued after error
+      debug:
+        msg: "Playbook continued despite failure"
+
+    # Test 3: Another ignore_errors test
+    - name: Test ignore_errors with non-existent command
+      command: /nonexistent/command
+      ignore_errors: yes
+
+    - name: Task after ignored error
+      debug:
+        msg: "This task runs even after the error"
+
+    # Test 4: Multiple tasks with ignore_errors
+    - name: First failing task (ignored)
+      shell: exit 1
+      ignore_errors: yes
+
+    - name: Second failing task (ignored)
+      shell: exit 2
+      ignore_errors: yes
+
+    - name: Success after multiple failures
+      debug:
+        msg: "All failures were ignored successfully"
+
+    # Test 5: Test with file operations
+    - name: Try to read non-existent file (ignored)
+      command: cat /nonexistent/file.txt
+      ignore_errors: yes
+      register: read_result
+
+    - name: Check error was ignored
+      debug:
+        msg: "Error ignored, rc: {{ read_result.rc | default('N/A') }}"
+
+    # Test 6: Test task that should succeed after ignoring error
+    - name: Fail and ignore
+      command: /bin/false
+      ignore_errors: yes
+
+    - name: Create file after ignored error
+      shell: echo "test" > /tmp/after-error.txt
+
+    - name: Verify file was created
+      command: cat /tmp/after-error.txt
+      register: after_error
+
+    - name: Display result
+      debug:
+        msg: "File content: {{ after_error.stdout }}"
+
+    # Test 7: Test multiple hosts behavior
+    - name: Task that might fail on some hosts
+      shell: echo "{{ inventory_hostname }}"
+      register: host_result
+
+    - name: Display host-specific result
+      debug:
+        msg: "Host {{ inventory_hostname }}: {{ host_result.stdout }}"
+
+    # Test 8: Test with variable in failing command
+    - name: Set test variable
+      shell: echo "test_value"
+      register: test_var
+
+    - name: Use variable in potentially failing command (ignored)
+      command: grep "{{ test_var.stdout }}" /nonexistent/file
+      ignore_errors: yes
+
+    # Test 9: Chain of tasks after error
+    - name: Error ignored in chain
+      command: /bin/false
+      ignore_errors: yes
+
+    - name: First task after error
+      debug:
+        msg: "First task in chain"
+
+    - name: Second task after error
+      debug:
+        msg: "Second task in chain"
+
+    - name: Third task after error
+      debug:
+        msg: "Third task in chain"
+
+    # Cleanup
+    - name: Cleanup test files
+      shell: rm -f /tmp/after-error.txt
+      ignore_errors: yes

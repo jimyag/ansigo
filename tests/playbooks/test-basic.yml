@@ -1,0 +1,23 @@
+---
+- name: Basic Playbook Test
+  hosts: all
+  gather_facts: no
+  tasks:
+    - name: Ping all hosts
+      ping:
+
+    - name: Get system information
+      command: uname -a
+      register: uname_result
+
+    - name: Display uname result
+      debug:
+        msg: "System info: {{ uname_result.stdout }}"
+
+    - name: Run hostname command
+      shell: hostname
+      register: hostname_result
+
+    - name: Show hostname
+      debug:
+        msg: "Hostname is {{ hostname_result.stdout }}"

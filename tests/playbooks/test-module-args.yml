@@ -1,0 +1,159 @@
+---
+# Test Suite: Module Arguments and Return Values
+# Tests: Module argument parsing, return value access, rc, stdout, stderr
+- name: Test Module Arguments and Return Values
+  hosts: all
+  gather_facts: no
+  tasks:
+    # Test 1: Command module return values
+    - name: Test command return values
+      command: echo "test output"
+      register: cmd_result
+
+    - name: Access command stdout
+      debug:
+        msg: "stdout: {{ cmd_result.stdout }}"
+
+    - name: Access command return code
+      debug:
+        msg: "rc: {{ cmd_result.rc }}"
+
+    # Test 2: Shell module with stderr
+    - name: Test stderr capture
+      shell: echo "error message" >&2
+      register: stderr_result
+      ignore_errors: yes
+
+    - name: Display stderr
+      debug:
+        msg: "stderr: {{ stderr_result.stderr | default('no stderr') }}"
+
+    # Test 3: Command with multiple args
+    - name: Test command with args
+      command: echo "arg1" "arg2" "arg3"
+      register: multi_arg
+
+    - name: Display multi-arg output
+      debug:
+        msg: "Output: {{ multi_arg.stdout }}"
+
+    # Test 4: Copy module parameters
+    - name: Test copy with content parameter
+      copy:
+        content: "test content"
+        dest: /tmp/test-copy.txt
+      register: copy_result
+
+    - name: Verify copy result
+      debug:
+        msg: "Copy changed: {{ copy_result.changed | default('N/A') }}"
+
+    # Test 5: Shell with complex command
+    - name: Test shell with pipe
+      shell: echo "test" | wc -l
+      register: pipe_result
+
+    - name: Display pipe result
+      debug:
+        msg: "Line count: {{ pipe_result.stdout }}"
+
+    # Test 6: Command with working directory
+    - name: Test command in /tmp
+      command: pwd
+      register: pwd_result
+
+    - name: Display working directory
+      debug:
+        msg: "Working dir: {{ pwd_result.stdout }}"
+
+    # Test 7: Multiple return value fields
+    - name: Run command for full result
+      command: hostname
+      register: full_result
+
+    - name: Access multiple result fields
+      debug:
+        msg: "cmd: hostname, rc: {{ full_result.rc }}, stdout: {{ full_result.stdout }}"
+
+    # Test 8: Copy module - verify changed status
+    - name: First copy (should change)
+      copy:
+        content: "original"
+        dest: /tmp/test-changed.txt
+      register: first_copy
+
+    - name: Second copy same content (should not change)
+      copy:
+        content: "original"
+        dest: /tmp/test-changed.txt
+      register: second_copy
+
+    - name: Compare changed status
+      debug:
+        msg: "First changed: {{ first_copy.changed | default('N/A') }}, Second changed: {{ second_copy.changed | default('N/A') }}"
+
+    # Test 9: Shell with environment
+    - name: Test shell with env var
+      shell: echo "User is $USER"
+      register: env_result
+
+    - name: Display env result
+      debug:
+        msg: "{{ env_result.stdout }}"
+
+    # Test 10: Command with creates parameter
+    - name: Create marker file
+      command: touch /tmp/marker.txt
+
+    - name: Command with creates (should skip)
+      command: echo "should skip"
+      args:
+        creates: /tmp/marker.txt
+      register: creates_result
+
+    - name: Verify creates behavior
+      debug:
+        msg: "Creates test: {{ creates_result.stdout | default('skipped as expected') }}"
+
+    # Test 11: Long output handling
+    - name: Test long output
+      shell: for i in {1..10}; do echo "Line $i"; done
+      register: long_output
+
+    - name: Display long output
+      debug:
+        msg: "Output lines: {{ long_output.stdout }}"
+
+    # Test 12: Special characters in output
+    - name: Test special characters
+      shell: echo "Special: !@#$%^&*()"
+      register: special_chars
+
+    - name: Display special chars
+      debug:
+        msg: "{{ special_chars.stdout }}"
+
+    # Test 13: Empty output
+    - name: Test empty output
+      command: /bin/true
+      register: empty_output
+
+    - name: Check empty output
+      debug:
+        msg: "Empty stdout: '{{ empty_output.stdout }}', rc: {{ empty_output.rc }}"
+
+    # Test 14: Multiline output
+    - name: Test multiline output
+      shell: |
+        echo "Line 1"
+        echo "Line 2"
+        echo "Line 3"
+      register: multiline
+
+    - name: Display multiline
+      debug:
+        msg: "Multiline: {{ multiline.stdout }}"
+
+    # Cleanup
+    - name: Cleanup test files
+      shell: rm -f /tmp/test-copy.txt /tmp/test-changed.txt /tmp/marker.txt

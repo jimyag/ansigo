@@ -1,0 +1,152 @@
+---
+# Test Suite: Advanced When Conditions
+# Tests: Complex when conditions, boolean logic, comparisons
+- name: Test When Conditions
+  hosts: all
+  gather_facts: no
+  vars:
+    environment: "production"
+    app_version: "2.1.5"
+    port: 8080
+    debug_mode: false
+    features:
+      caching: true
+      logging: true
+      metrics: false
+  tasks:
+    # Test 1: Simple equality
+    - name: Test when - equality
+      debug:
+        msg: "Environment is production"
+      when: environment == 'production'
+
+    # Test 2: Inequality
+    - name: Test when - inequality (should skip)
+      debug:
+        msg: "This should not run"
+      when: environment != 'production'
+
+    # Test 3: Greater than
+    - name: Test when - greater than
+      debug:
+        msg: "Port is greater than 1024"
+      when: port > 1024
+
+    # Test 4: Less than
+    - name: Test when - less than
+      debug:
+        msg: "Port is less than 65535"
+      when: port < 65535
+
+    # Test 5: Boolean condition
+    - name: Test when - boolean false
+      debug:
+        msg: "Debug mode is disabled"
+      when: not debug_mode
+
+    # Test 6: AND condition
+    - name: Test when - AND
+      debug:
+        msg: "Production with correct port"
+      when: environment == 'production' and port == 8080
+
+    # Test 7: OR condition
+    - name: Test when - OR
+      debug:
+        msg: "Either production or staging"
+      when: environment == 'production' or environment == 'staging'
+
+    # Test 8: Complex nested condition
+    - name: Test when - complex
+      debug:
+        msg: "Complex condition passed"
+      when: (environment == 'production' or environment == 'staging') and port > 1024
+
+    # Test 9: NOT condition
+    - name: Test when - NOT
+      debug:
+        msg: "Not in development"
+      when: environment != 'development'
+
+    # Test 10: Nested variable in condition
+    - name: Test when - nested variable
+      debug:
+        msg: "Caching is enabled"
+      when: features.caching == true
+
+    # Test 11: Multiple AND conditions
+    - name: Test when - multiple AND
+      debug:
+        msg: "All conditions met"
+      when: environment == 'production' and port == 8080 and features.caching
+
+    # Test 12: Register and condition
+    - name: Get hostname for condition
+      command: hostname
+      register: host_result
+
+    - name: Test when - with registered variable
+      debug:
+        msg: "Hostname is {{ host_result.stdout }}"
+      when: host_result.rc == 0
+
+    # Test 13: String contains (using filters)
+    - name: Test when - version check
+      debug:
+        msg: "Version starts with 2"
+      when: app_version[0] == '2'
+
+    # Test 14: Multiple conditions with parentheses
+    - name: Test when - grouped conditions
+      debug:
+        msg: "Grouped condition passed"
+      when: (features.caching or features.logging) and environment == 'production'
+
+    # Test 15: Condition with command result
+    - name: Run test command
+      shell: echo "test"
+      register: test_output
+
+    - name: Test when - command output
+      debug:
+        msg: "Command succeeded"
+      when: test_output.stdout == 'test'
+
+    # Test 16: Greater than or equal
+    - name: Test when - >=
+      debug:
+        msg: "Port is >= 8080"
+      when: port >= 8080
+
+    # Test 17: Less than or equal
+    - name: Test when - <=
+      debug:
+        msg: "Port is <= 8080"
+      when: port <= 8080
+
+    # Test 18: When with loop
+    - name: Test when - with loop
+      debug:
+        msg: "Feature {{ item.key }} is enabled"
+      loop:
+        - { key: 'caching', value: true }
+        - { key: 'logging', value: true }
+        - { key: 'metrics', value: false }
+      when: item.value == true
+
+    # Test 19: Negation with AND
+    - name: Test when - NOT with AND
+      debug:
+        msg: "Not debug and is production"
+      when: not debug_mode and environment == 'production'
+
+    # Test 20: Complex real-world scenario
+    - name: Test when - deployment condition
+      debug:
+        msg: "Ready to deploy"
+      when:
+        - environment == 'production'
+        - port > 1024
+        - port < 65535
+        - features.caching == true
+        - not debug_mode

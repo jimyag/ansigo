@@ -1,0 +1,82 @@
+---
+# Test Suite: Core Module Execution
+# Tests: ping, command, shell, copy modules
+- name: Test Core Modules
+  hosts: all
+  gather_facts: no
+  vars:
+    test_file: /tmp/ansigo-test.txt
+    test_content: "Hello from AnsiGo"
+  tasks:
+    # Test 1: Ping module
+    - name: Test ping module
+      ping:
+
+    # Test 2: Command module - simple command
+    - name: Test command module - echo
+      command: echo "Hello World"
+      register: echo_result
+
+    - name: Verify echo output
+      debug:
+        msg: "Echo output: {{ echo_result.stdout }}"
+
+    # Test 3: Command module - with creates parameter
+    - name: Test command with creates (should run)
+      command: touch /tmp/ansigo-creates-test.txt
+        creates=/tmp/nonexistent-file.txt
+
+    # Test 4: Shell module
+    - name: Test shell module with pipe
+      shell: echo "test" | cat
+      register: shell_result
+
+    - name: Verify shell output
+      debug:
+        msg: "Shell output: {{ shell_result.stdout }}"
+
+    # Test 5: Copy module - content
+    - name: Test copy module with content
+      copy:
+        content: "{{ test_content }}"
+        dest: "{{ test_file }}"
+
+    # Test 6: Verify file was created
+    - name: Verify copied file exists
+      command: cat {{ test_file }}
+      register: cat_result
+
+    - name: Check copied content
+      debug:
+        msg: "File content: {{ cat_result.stdout }}"
+
+    # Test 7: Command module - get hostname
+    - name: Get system hostname
+      command: hostname
+      register: hostname_result
+
+    - name: Display hostname
+      debug:
+        msg: "System hostname: {{ hostname_result.stdout }}"
+
+    # Test 8: Shell module - environment variables
+    - name: Test shell with environment variable
+      shell: echo $HOME
+      register: home_result
+
+    - name: Display HOME
+      debug:
+        msg: "HOME directory: {{ home_result.stdout }}"
+
+    # Test 9: Command module - return code check
+    - name: Test command return code
+      command: /bin/true
+      register: true_result
+
+    - name: Verify return code is 0
+      debug:
+        msg: "Return code: {{ true_result.rc }}"
+
+    # Cleanup
+    - name: Cleanup test files
+      shell: rm -f {{ test_file }} /tmp/ansigo-creates-test.txt

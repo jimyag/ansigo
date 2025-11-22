@@ -1,0 +1,95 @@
+---
+# Test Suite: Variable Precedence and Scoping
+# Tests: inventory vars, play vars, registered vars, set_fact
+- name: Test Variable Precedence
+  hosts: all
+  gather_facts: no
+  vars:
+    # Play-level variables
+    play_var: "play_value"
+    override_test: "play_level"
+    nested_var:
+      level1:
+        level2: "nested_value"
+  tasks:
+    # Test 1: Play variables
+    - name: Test play variable
+      debug:
+        msg: "Play var: {{ play_var }}"
+
+    # Test 2: Inventory variables
+    - name: Test inventory hostname
+      debug:
+        msg: "Inventory hostname: {{ inventory_hostname }}"
+
+    # Test 3: Registered variables
+    - name: Register a variable
+      command: hostname
+      register: registered_hostname
+
+    - name: Use registered variable
+      debug:
+        msg: "Registered hostname: {{ registered_hostname.stdout }}"
+
+    # Test 4: Variable precedence - registered > play
+    - name: Set a variable at play level
+      debug:
+        msg: "Override test before: {{ override_test }}"
+
+    - name: Override with registered variable
+      shell: echo "registered_level"
+      register: override_test
+
+    - name: Check precedence (registered should win)
+      debug:
+        msg: "Override test after: {{ override_test.stdout }}"
+
+    # Test 5: Nested variable access
+    - name: Test nested variable
+      debug:
+        msg: "Nested var: {{ nested_var.level1.level2 }}"
+
+    # Test 6: Variable in command args
+    - name: Use variable in command
+      command: echo "{{ play_var }}"
+      register: echo_var
+
+    - name: Verify variable was expanded
+      debug:
+        msg: "Echo result: {{ echo_var.stdout }}"
+
+    # Test 7: Multiple registered variables
+    - name: Register multiple variables
+      command: echo "first"
+      register: var1
+
+    - name: Register second variable
+      command: echo "second"
+      register: var2
+
+    - name: Use both registered variables
+      debug:
+        msg: "Var1: {{ var1.stdout }}, Var2: {{ var2.stdout }}"
+
+    # Test 8: Variable in copy content
+    - name: Test variable in copy module
+      copy:
+        content: "Value: {{ play_var }}"
+        dest: /tmp/test-var.txt
+
+    - name: Verify variable expansion in file
+      command: cat /tmp/test-var.txt
+      register: file_content
+
+    - name: Check file content
+      debug:
+        msg: "File content: {{ file_content.stdout }}"
+
+    # Test 9: Undefined variable behavior
+    - name: Test undefined variable with default
+      debug:
+        msg: "Undefined with default: {{ undefined_var | default('default_value') }}"
+
+    # Cleanup
+    - name: Cleanup test file
+      shell: rm -f /tmp/test-var.txt

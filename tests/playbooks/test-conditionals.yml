@@ -1,0 +1,22 @@
+---
+- name: Test Conditionals
+  hosts: all
+  gather_facts: no
+  tasks:
+    - name: Get hostname
+      command: hostname
+      register: hostname_output
+
+    - name: This should run on target1
+      debug:
+        msg: "Running on target1"
+      when: hostname_output.stdout == 'target1'
+
+    - name: This should run on all hosts
+      debug:
+        msg: "This runs on all hosts"
+
+    - name: Check if hostname contains 'target'
+      debug:
+        msg: "Hostname contains target"
+      when: hostname_output.stdout == 'target1' or hostname_output.stdout == 'target2' or hostname_output.stdout == 'target3'

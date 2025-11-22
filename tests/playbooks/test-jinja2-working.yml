@@ -1,0 +1,123 @@
+---
+- name: Working Jinja2 Features Test
+  hosts: all
+  gather_facts: no
+  vars:
+    app_name: "myapp"
+    app_version: "1.2.3"
+    environment: "production"
+    config:
+      port: 8080
+      host: "0.0.0.0"
+      debug: false
+    packages:
+      - nginx
+      - redis
+      - postgresql
+  tasks:
+    # Test 1: 基本变量替换
+    - name: Test basic variable substitution
+      debug:
+        msg: "Application {{ app_name }} version {{ app_version }}"
+
+    # Test 2: 字符串过滤器
+    - name: Test upper filter
+      debug:
+        msg: "{{ app_name | upper }}"
+
+    - name: Test lower filter
+      debug:
+        msg: "{{ environment | lower }}"
+
+    # Test 3: 嵌套变量访问
+    - name: Test nested variable access
+      debug:
+        msg: "Server on {{ config.host }} port {{ config.port }}"
+
+    # Test 4: 条件表达式
+    - name: Test if-else expression
+      debug:
+        msg: "{% if config.debug %}enabled{% else %}disabled{% endif %}"
+
+    # Test 5: 数组访问
+    - name: Test array first
+      debug:
+        msg: "First package is {{ packages | first }}"
+
+    - name: Test array last
+      debug:
+        msg: "Last package is {{ packages | last }}"
+
+    # Test 6: 数组长度
+    - name: Test array length
+      debug:
+        msg: "We have {{ packages | length }} packages"
+
+    # Test 7: 数组 join
+    - name: Test array join
+      debug:
+        msg: "Packages: {{ packages | join:', ' }}"
+
+    # Test 8: when 条件 - 等于
+    - name: Production check
+      debug:
+        msg: "Running in production"
+      when: environment == 'production'
+
+    # Test 9: when 条件 - 不等于
+    - name: Development check (should skip)
+      debug:
+        msg: "Running in development"
+      when: environment != 'production'
+
+    # Test 10: when 条件 - 布尔值
+    - name: Debug disabled check
+      debug:
+        msg: "Debug is disabled"
+      when: not config.debug
+
+    # Test 11: when 条件 - 数字比较
+    - name: Port range check
+      debug:
+        msg: "Port is valid"
+      when: config.port > 1024 and config.port < 65535
+
+    # Test 12: 执行命令并使用结果
+    - name: Get hostname
+      command: hostname
+      register: hostname_result
+
+    - name: Show hostname
+      debug:
+        msg: "Current hostname is {{ hostname_result.stdout }}"
+
+    # Test 13: 字符串长度
+    - name: Hostname length
+      debug:
+        msg: "Hostname length is {{ hostname_result.stdout | length }}"
+
+    # Test 14: 复杂条件
+    - name: Complex condition
+      debug:
+        msg: "Complex condition passed"
+      when: (environment == 'production' or environment == 'staging') and config.port == 8080
+
+    # Test 15: 循环（在模板中）
+    - name: List all packages
+      debug:
+        msg: "{% for pkg in packages %}{{ pkg }}{% if not loop.last %}, {% endif %}{% endfor %}"
+
+    # Test 16: 带索引的循环
+    - name: Packages with index
+      debug:
+        msg: "{% for pkg in packages %}{{ loop.index }}. {{ pkg }} {% endfor %}"
+
+    # Test 17: 条件循环
+    - name: Filter packages
+      debug:
+        msg: "{% for pkg in packages %}{% if pkg != 'redis' %}{{ pkg }} {% endif %}{% endfor %}"
+
+    # Test 18: Title case
+    - name: Test title filter
+      debug:
+        msg: "{{ app_name | title }}"

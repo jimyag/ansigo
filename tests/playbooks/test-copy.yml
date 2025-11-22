@@ -1,0 +1,32 @@
+---
+- name: Test Copy Module in Playbook
+  hosts: all
+  gather_facts: no
+  vars:
+    test_message: "Hello from Playbook Variables"
+  tasks:
+    - name: Create a test file with content
+      copy:
+        content: "{{ test_message }}"
+        dest: /tmp/playbook-test.txt
+
+    - name: Verify file content
+      command: cat /tmp/playbook-test.txt
+      register: file_content
+
+    - name: Display file content
+      debug:
+        msg: "File contains: {{ file_content.stdout }}"
+
+    - name: Create another file with literal content
+      copy:
+        content: "Line 1\nLine 2\nLine 3"
+        dest: /tmp/multiline-playbook.txt
+
+    - name: Check multiline file
+      command: wc -l /tmp/multiline-playbook.txt
+      register: line_count
+
+    - name: Show line count
+      debug:
+        msg: "File has {{ line_count.stdout }} lines"

@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  # 控制节点 - 运行 Ansible 和 AnsiGo
+  control:
+    build:
+      context: .
+      dockerfile: control-node.Dockerfile
+    container_name: ansigo-control
+    volumes:
+      - ../../:/workspace/ansigo  # 挂载项目代码
+      - ../:/workspace/tests      # 挂载测试文件
+    networks:
+      - ansigo-network
+    stdin_open: true
+    tty: true
+    command: tail -f /dev/null  # 保持容器运行
+
+  # 目标节点 1
+  target1:
+    build:
+      context: .
+      dockerfile: target-node.Dockerfile
+    container_name: ansigo-target1
+    hostname: target1
+    networks:
+      ansigo-network:
+        ipv4_address: 172.28.0.11
+    expose:
+      - "22"
+
+  # 目标节点 2
+  target2:
+    build:
+      context: .
+      dockerfile: target-node.Dockerfile
+    container_name: ansigo-target2
+    hostname: target2
+    networks:
+      ansigo-network:
+        ipv4_address: 172.28.0.12
+    expose:
+      - "22"
+
+  # 目标节点 3
+  target3:
+    build:
+      context: .
+      dockerfile: target-node.Dockerfile
+    container_name: ansigo-target3
+    hostname: target3
+    networks:
+      ansigo-network:
+        ipv4_address: 172.28.0.13
+    expose:
+      - "22"
+
+networks:
+  ansigo-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

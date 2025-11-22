@@ -1,0 +1,110 @@
+---
+# Test Suite: Multi-Host Execution
+# Tests: Concurrent execution, host-specific variables, inventory patterns
+- name: Test Multi-Host Execution
+  hosts: all
+  gather_facts: no
+  vars:
+    common_var: "shared_value"
+  tasks:
+    # Test 1: Basic task on all hosts
+    - name: Test task on all hosts
+      debug:
+        msg: "Running on {{ inventory_hostname }}"
+
+    # Test 2: Get hostname from each host
+    - name: Get hostname from each host
+      command: hostname
+      register: hostname_result
+
+    - name: Display each host's hostname
+      debug:
+        msg: "{{ inventory_hostname }} reports hostname: {{ hostname_result.stdout }}"
+
+    # Test 3: Create host-specific files
+    - name: Create host-specific file
+      shell: echo "{{ inventory_hostname }}" > /tmp/host-{{ inventory_hostname }}.txt
+
+    - name: Verify host-specific file
+      command: cat /tmp/host-{{ inventory_hostname }}.txt
+      register: host_file
+
+    - name: Display host file content
+      debug:
+        msg: "Host {{ inventory_hostname }} file: {{ host_file.stdout }}"
+
+    # Test 4: Test common variable on all hosts
+    - name: Test common variable
+      debug:
+        msg: "Host {{ inventory_hostname }} sees common_var: {{ common_var }}"
+
+    # Test 5: Register variables per host
+    - name: Register per-host variable
+      shell: echo "value-{{ inventory_hostname }}"
+      register: per_host_var
+
+    - name: Use per-host variable
+      debug:
+        msg: "{{ inventory_hostname }}: {{ per_host_var.stdout }}"
+
+    # Test 6: Concurrent command execution
+    - name: Run concurrent command
+      command: sleep 1 && echo "done on {{ inventory_hostname }}"
+      register: concurrent_result
+
+    - name: Display concurrent results
+      debug:
+        msg: "{{ inventory_hostname }}: {{ concurrent_result.stdout }}"
+
+    # Test 7: Host-specific conditions
+    - name: Check if host is web1
+      debug:
+        msg: "This is web1"
+      when: inventory_hostname == 'web1'
+
+    - name: Check if host is NOT web1
+      debug:
+        msg: "This is not web1: {{ inventory_hostname }}"
+      when: inventory_hostname != 'web1'
+
+    # Test 8: Copy different content per host
+    - name: Copy host-specific content
+      copy:
+        content: "Content for {{ inventory_hostname }}"
+        dest: /tmp/content-{{ inventory_hostname }}.txt
+
+    - name: Read host-specific content
+      command: cat /tmp/content-{{ inventory_hostname }}.txt
+      register: content_result
+
+    - name: Verify content is host-specific
+      debug:
+        msg: "{{ content_result.stdout }}"
+
+    # Test 9: Loop with host-specific data
+    - name: Create multiple files per host
+      shell: echo "{{ inventory_hostname }}-{{ item }}" > /tmp/multi-{{ inventory_hostname }}-{{ item }}.txt
+      loop: [1, 2, 3]
+
+    - name: Verify multiple files
+      command: cat /tmp/multi-{{ inventory_hostname }}-{{ item }}.txt
+      loop: [1, 2, 3]
+      register: multi_files
+
+    - name: Display multi-file results
+      debug:
+        msg: "{{ item.item }}: {{ item.stdout }}"
+      loop: "{{ multi_files.results }}"
+
+    # Test 10: Test execution order independence
+    - name: Generate random number per host
+      shell: echo $RANDOM
+      register: random_num
+
+    - name: Display random numbers
+      debug:
+        msg: "{{ inventory_hostname }} random: {{ random_num.stdout }}"
+
+    # Cleanup
+    - name: Cleanup test files
+      shell: rm -f /tmp/host-*.txt /tmp/content-*.txt /tmp/multi-*.txt
