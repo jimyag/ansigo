@@ -1,0 +1,3 @@
+[submodule "docs/ansible-documentation"]
+	path = docs/ansible-documentation
+	url = https://github.com/ansible/ansible-documentation.git
