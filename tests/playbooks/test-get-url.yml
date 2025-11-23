@@ -1,0 +1,57 @@
+---
+# 测试 get_url 模块
+- name: Test get_url module
+  hosts: webservers
+  gather_facts: false
+  become: false
+  tasks:
+    # 测试基本的文件下载
+    - name: Download a test file
+      get_url:
+        url: "https://raw.githubusercontent.com/ansible/ansible/devel/README.md"
+        dest: "/tmp/ansible-readme.md"
+
+    - name: Verify file was downloaded
+      command: test -f /tmp/ansible-readme.md
+      register: file_check
+
+    - name: Display file check result
+      debug:
+        msg: "File exists: {{ file_check.rc == 0 }}"
+
+    # 测试带权限的下载
+    - name: Download with specific permissions
+      get_url:
+        url: "https://raw.githubusercontent.com/ansible/ansible/devel/README.md"
+        dest: "/tmp/ansible-readme-perms.md"
+        mode: "0644"
+      become: true
+
+    # 测试 force=false（文件已存在时不重新下载）
+    - name: Try to download again without force
+      get_url:
+        url: "https://raw.githubusercontent.com/ansible/ansible/devel/README.md"
+        dest: "/tmp/ansible-readme.md"
+        force: false
+      register: download_result
+
+    - name: Check if second download was skipped
+      debug:
+        msg: "Second download changed: {{ download_result.changed }}"
+
+    # 测试 force=true（强制重新下载）
+    - name: Force re-download
+      get_url:
+        url: "https://raw.githubusercontent.com/ansible/ansible/devel/README.md"
+        dest: "/tmp/ansible-readme-force.md"
+        force: true
+      register: force_download
+
+    - name: Check if force download occurred
+      debug:
+        msg: "Force download changed: {{ force_download.changed }}"
+
+    # 清理测试文件
+    - name: Cleanup test files
+      command: rm -f /tmp/ansible-readme*.md
+      become: true

@@ -74,8 +74,64 @@
    - `go.mod` 使用 Go 1.25（不带 .0 后缀）
    - 遵循语义化版本规范
 
+## 测试规范
+
+### 强制测试要求
+
+**重要：每个新功能实现后，必须在 Docker 虚拟机环境中进行完整测试！**
+
+1. **测试环境**
+   - 所有测试必须在 Docker 容器中运行
+   - 不要在本地直接执行二进制文件
+   - 使用 `tests/docker/` 中的测试环境
+
+2. **测试流程**
+
+   ```bash
+   # 1. 启动 Docker 测试环境（如果未启动）
+   cd tests/docker
+   docker-compose up -d
+
+   # 2. 编译项目
+   go build ./...
+
+   # 3. 运行测试 playbook
+   go run ./cmd/ansigo-playbook -i tests/inventory/hosts.ini tests/playbooks/test-xxx.yml
+
+   # 4. 验证输出和结果
+   ```
+
+3. **测试用例要求**
+   - 每个新功能必须创建对应的测试 playbook
+   - 测试 playbook 命名：`tests/playbooks/test-<功能名>.yml`
+   - 测试应覆盖正常场景和边界情况
+   - 测试应验证幂等性（多次执行结果一致）
+
+4. **测试验证标准**
+   - ✅ 功能按预期工作
+   - ✅ 输出格式正确（颜色、格式与 Ansible 一致）
+   - ✅ 错误处理正确
+   - ✅ 幂等性验证通过
+   - ✅ 没有编译错误和警告
+
+5. **测试文档**
+   - 在测试 playbook 中添加注释说明测试内容
+   - 记录测试预期结果
+   - 如有特殊测试要求，在注释中说明
+
+### Docker 测试环境
+
+测试环境包含：
+
+- `ansigo-control`: 控制节点（运行 ansigo）
+- `ansigo-target1`, `ansigo-target2`, `ansigo-target3`: 目标节点
+- 所有节点都配置了 SSH 访问
+- 测试用户：testuser / testpass
+- 支持 sudo 权限测试
+
 ## 注意事项
 
 - 不要随意在本地执行二进制文件，所有测试应在 Docker 容器中运行
 - 使用 `staticcheck ./...` 检查代码质量
 - 保持代码简洁，避免过度设计
+- **每个功能实现后必须测试通过才能继续下一个功能**

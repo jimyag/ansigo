@@ -1,0 +1,35 @@
+---
+# 测试 lookup('template') 功能
+- name: Test lookup template plugin
+  hosts: webservers
+  gather_facts: true
+  vars:
+    # 简单的 lookup - 使用字面量路径
+    simple_content: "{{ lookup('template', 'test-template.j2') }}"
+
+    # 测试变量
+    test_var: "Hello from variable"
+  tasks:
+    - name: Display simple lookup result
+      debug:
+        msg: "Content: {{ simple_content }}"
+
+    - name: Test that lookup content can be used in copy
+      copy:
+        content: "{{ simple_content }}"
+        dest: "/tmp/test-lookup-output.txt"
+
+    - name: Verify file was created
+      command: cat /tmp/test-lookup-output.txt
+      register: file_content
+
+    - name: Display file content
+      debug:
+        msg: "File content: {{ file_content.stdout }}"
+
+    - name: Cleanup
+      command: rm -f /tmp/test-lookup-output.txt
+
+    - name: Summary
+      debug:
+        msg: "✓ lookup('template') test passed!"

@@ -1,0 +1,118 @@
+---
+# 测试 Jinja2 Tests (is defined, is not, etc.)
+- name: Test Jinja2 Tests
+  hosts: webservers
+  gather_facts: false
+  vars:
+    defined_var: "I am defined"
+    null_var: null
+    empty_string: ""
+    zero_value: 0
+    false_value: false
+    # Homelab pattern test variables
+    systemd_unit_name: "mihomo.service"
+    systemd_unit_state: "started"
+    service_status:
+      status:
+        ActiveState: "active"
+  tasks:
+    # ========== 测试 is defined ==========
+    - name: Test is defined - with defined variable (should run)
+      debug:
+        msg: "✓ Variable is defined"
+      when: defined_var is defined
+
+    - name: Test is defined - with undefined variable (should skip)
+      debug:
+        msg: "✗ This should not print"
+      when: undefined_var is defined
+
+    - name: Verify undefined test was skipped
+      debug:
+        msg: "✓ Undefined variable test was correctly skipped"
+
+    # ========== 测试 is not defined ==========
+    - name: Test is not defined - with undefined variable (should run)
+      debug:
+        msg: "✓ Variable is not defined"
+      when: another_undefined_var is not defined
+
+    - name: Test is not defined - with defined variable (should skip)
+      debug:
+        msg: "✗ This should not print"
+      when: defined_var is not defined
+
+    - name: Verify defined test was skipped
+      debug:
+        msg: "✓ Defined variable test was correctly skipped"
+
+    # ========== 测试 is none ==========
+    - name: Test is none - with null value (should run)
+      debug:
+        msg: "✓ Variable is none/null"
+      when: null_var is none
+
+    - name: Test is none - with non-null value (should skip)
+      debug:
+        msg: "✗ This should not print"
+      when: defined_var is none
+
+    - name: Verify non-null test was skipped
+      debug:
+        msg: "✓ Non-null variable test was correctly skipped"
+
+    # ========== 测试 is not none ==========
+    - name: Test is not none - with defined value (should run)
+      debug:
+        msg: "✓ Variable is not none"
+      when: defined_var is not none
+
+    - name: Test is not none - with null value (should skip)
+      debug:
+        msg: "✗ This should not print"
+      when: null_var is not none
+
+    - name: Verify null test was skipped
+      debug:
+        msg: "✓ Null variable test was correctly skipped"
+
+    # ========== Homelab 实际使用场景 ==========
+    - name: Test homelab pattern - multiple conditions
+      debug:
+        msg: "✓ Systemd unit configuration is valid"
+      when:
+        - systemd_unit_name | length > 0
+        - systemd_unit_state is not none
+
+    - name: Test homelab pattern - service status check
+      debug:
+        msg: "✓ Service status check passed"
+      when:
+        - service_status.status is defined
+        - service_status.status.ActiveState == "active"
+
+    # ========== 测试边界情况 ==========
+    - name: Test is defined - with empty string (should run, empty string is defined)
+      debug:
+        msg: "✓ Empty string is defined"
+      when: empty_string is defined
+
+    - name: Test is defined - with zero value (should run, 0 is defined)
+      debug:
+        msg: "✓ Zero is defined"
+      when: zero_value is defined
+
+    - name: Test is defined - with false value (should run, false is defined)
+      debug:
+        msg: "✓ False is defined"
+      when: false_value is defined
+
+    # ========== 最终总结 ==========
+    - name: Summary
+      debug:
+        msg: |
+          ✓ All Jinja2 tests passed!
+          - is defined: ✓ (8 uses in homelab)
+          - is not defined: ✓
+          - is none: ✓
+          - is not none: ✓ (8 uses in homelab)

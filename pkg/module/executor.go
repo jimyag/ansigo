@@ -48,6 +48,12 @@ func (e *Executor) Execute(conn *connection.Connection, moduleName string, args 
 	case "systemd":
 		systemdModule := &SystemdModule{}
 		return systemdModule.Execute(conn, args, become, becomeUser, becomeMethod)
+	case "get_url":
+		getUrlModule := &GetUrlModule{}
+		return getUrlModule.Execute(conn, args, become, becomeUser, becomeMethod)
+	case "fail":
+		failModule := &FailModule{}
+		return failModule.Execute(conn, args, become, becomeUser, becomeMethod)
 	default:
 		return nil, fmt.Errorf("unsupported module: %s", moduleName)
 	}

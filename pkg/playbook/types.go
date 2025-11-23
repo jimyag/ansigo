@@ -90,7 +90,7 @@ func (t *Task) UnmarshalYAML(value *yaml.Node) error {
 	type TaskFields struct {
 		Name         string       `yaml:"name"`
 		Register     string       `yaml:"register"`
-		When         string       `yaml:"when"`
+		When         interface{}  `yaml:"when"`          // 可以是字符串或列表
 		FailedWhen   string       `yaml:"failed_when"`
 		ChangedWhen  string       `yaml:"changed_when"`
 		IgnoreErrors bool         `yaml:"ignore_errors"`
@@ -112,7 +112,26 @@ func (t *Task) UnmarshalYAML(value *yaml.Node) error {
 
 	t.Name = fields.Name
 	t.Register = fields.Register
-	t.When = fields.When
+
+	// 解析 when 字段（支持字符串或列表，列表表示 AND 关系）
+	if fields.When != nil {
+		switch w := fields.When.(type) {
+		case string:
+			t.When = w
+		case []interface{}:
+			// 将列表中的条件用 AND 连接
+			conditions := make([]string, 0, len(w))
+			for _, cond := range w {
+				if s, ok := cond.(string); ok {
+					conditions = append(conditions, "("+s+")")
+				}
+			}
+			if len(conditions) > 0 {
+				t.When = strings.Join(conditions, " and ")
+			}
+		}
+	}
+
 	t.FailedWhen = fields.FailedWhen
 	t.ChangedWhen = fields.ChangedWhen
 	t.IgnoreErrors = fields.IgnoreErrors
@@ -194,6 +213,9 @@ func (t *Task) UnmarshalYAML(value *yaml.Node) error {
 		"template":                     true,
 		"lineinfile":                   true,
 		"service":                      true,
+		"systemd":                      true,
+		"get_url":                      true,
+		"fail":                         true,
 		"ansible.builtin.import_tasks": true,
 		"import_tasks":                 true,
 		"ansible.builtin.include_role": true,
@@ -288,6 +310,9 @@ func (h *Handler) UnmarshalYAML(value *yaml.Node) error {
 		"template":                     true,
 		"lineinfile":                   true,
 		"service":                      true,
+		"systemd":                      true,
+		"get_url":                      true,
+		"fail":                         true,
 		"ansible.builtin.import_tasks": true,
 		"import_tasks":                 true,
 		"ansible.builtin.include_role": true,

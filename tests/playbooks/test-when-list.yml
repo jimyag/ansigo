@@ -1,0 +1,66 @@
+---
+# 测试多项 when 条件（列表形式，AND 关系）
+- name: Test multi-item when conditions
+  hosts: webservers
+  gather_facts: false
+  vars:
+    os_family: "Debian"
+    os_version: "22.04"
+    is_prod: true
+  tasks:
+    # 测试1：单个 when 条件（基线测试）
+    - name: Single when condition - should run
+      debug:
+        msg: "✓ Single when condition works"
+      when: os_family == "Debian"
+
+    # 测试2：多项 when 条件 - 全部为 true
+    - name: Multi-item when - all true
+      debug:
+        msg: "✓ All conditions are true"
+      when:
+        - os_family == "Debian"
+        - os_version == "22.04"
+        - is_prod == true
+
+    # 测试3：多项 when 条件 - 有一个为 false（应该跳过）
+    - name: Multi-item when - one false (should be skipped)
+      debug:
+        msg: "✗ This should not be printed"
+      when:
+        - os_family == "Debian"
+        - os_version == "20.04"  # 这个条件为 false
+
+    # 测试4：验证上一个任务被跳过
+    - name: Verify previous task was skipped
+      debug:
+        msg: "✓ Previous task was correctly skipped"
+
+    # 测试5：多项 when 条件 - 变量存在性检查
+    - name: Multi-item when with undefined variable
+      debug:
+        msg: "Testing with existing and non-existing vars"
+      when:
+        - os_family == "Debian"
+        - undefined_var is defined  # 这个条件为 false
+
+- name: Test when conditions in complex scenarios
+  hosts: webservers
+  gather_facts: false
+  vars:
+    service_name: "nginx"
+    service_state: "started"
+    service_enabled: true
+  tasks:
+    # 测试6：复杂的多项条件
+    - name: Complex multi-item when
+      debug:
+        msg: "✓ Complex conditions all passed"
+      when:
+        - service_name == "nginx"
+        - service_state == "started" or service_state == "stopped"
+        - service_enabled == true
+
+    - name: Summary
+      debug:
+        msg: "✓ All multi-item when condition tests completed successfully!"

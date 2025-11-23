@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/jimyag/ansigo/pkg/connection"
+	"github.com/jimyag/ansigo/pkg/facts"
 	"github.com/jimyag/ansigo/pkg/inventory"
 	"github.com/jimyag/ansigo/pkg/logger"
 	"github.com/jimyag/ansigo/pkg/module"
@@ -79,6 +80,14 @@ func (r *Runner) ExecutePlay(play *Play) error {
 	for k, v := range play.Vars {
 		playVars[k] = v
 	}
+
+	// 处理 lookup() 调用（在 Jinja2 渲染之前）
+	lookupHandler := NewLookupHandler(r.playbookPath, r.template)
+	processedVars, err := lookupHandler.ProcessLookupsInVars(playVars, playVars)
+	if err != nil {
+		return fmt.Errorf("failed to process lookups in play vars: %w", err)
+	}
+	playVars = processedVars
 
 	// 处理 roles
 	if len(play.Roles) > 0 {
@@ -159,6 +168,13 @@ func (r *Runner) ExecutePlay(play *Play) error {
 	stats := make(map[string]*HostStats)
 	for _, host := range hosts {
 		stats[host.Name] = &HostStats{}
+	}
+
+	// Gather facts if enabled (default is true unless explicitly set to false)
+	if play.GatherFacts {
+		if err := r.gatherFactsForHosts(hosts); err != nil {
+			return fmt.Errorf("failed to gather facts: %w", err)
+		}
 	}
 
 	// 执行所有任务（包括 role 任务和 play 任务）
@@ -1199,4 +1215,48 @@ func (r *Runner) expandAllTasks(tasks []Task, includer *TaskIncluder, vars map[s
 	}
 
 	return result, nil
+}
+
+// gatherFactsForHosts gathers facts for all hosts in parallel
+func (r *Runner) gatherFactsForHosts(hosts []*inventory.Host) error {
+	var wg sync.WaitGroup
+	errors := make(chan error, len(hosts))
+
+	for _, host := range hosts {
+		wg.Add(1)
+		go func(h *inventory.Host) {
+			defer wg.Done()
+
+			// Connect to host
+			conn, err := r.connMgr.Connect(h)
+			if err != nil {
+				errors <- fmt.Errorf("failed to connect to %s: %w", h.Name, err)
+				return
+			}
+			defer conn.Close()
+
+			// Gather facts
+			hostFacts, err := facts.GatherFacts(conn)
+			if err != nil {
+				errors <- fmt.Errorf("failed to gather facts for %s: %w", h.Name, err)
+				return
+			}
+
+			// Set facts as host variables
+			r.varMgr.SetHostVars(h.Name, hostFacts)
+		}(host)
+	}
+
+	// Wait for all fact gathering to complete
+	wg.Wait()
+	close(errors)
+
+	// Check for errors
+	for err := range errors {
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

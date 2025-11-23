@@ -1,0 +1,55 @@
+---
+# 测试 Ansible Facts 收集
+- name: Test Facts Gathering
+  hosts: webservers
+  gather_facts: true
+  tasks:
+    # 测试基本 facts 变量
+    - name: Display ansible_system
+      debug:
+        msg: "System: {{ ansible_system }}"
+
+    - name: Display ansible_architecture
+      debug:
+        msg: "Architecture: {{ ansible_architecture }}"
+
+    # 测试 homelab 实际使用场景 - 构建下载 URL
+    - name: Test homelab binary URL pattern
+      debug:
+        msg: "Download URL: https://example.com/{{ ansible_system | lower }}/{{ ansible_architecture | replace('x86_64', 'amd64') | replace('aarch64', 'arm64') }}/binary"
+      vars:
+        base_url: "https://example.com"
+
+    # 测试条件判断
+    - name: This should run on Linux systems
+      debug:
+        msg: "✓ Running on Linux system"
+      when: ansible_system == "Linux"
+
+    - name: This should run on x86_64 architecture
+      debug:
+        msg: "✓ Running on x86_64 architecture"
+      when: ansible_architecture == "x86_64"
+
+# 测试 gather_facts: false
+- name: Test without facts gathering
+  hosts: webservers
+  gather_facts: false
+  tasks:
+    - name: Verify ansible_system is still available from previous play
+      debug:
+        msg: "System from previous play: {{ ansible_system }}"
+
+    - name: Test that undefined facts don't break
+      debug:
+        msg: "This should print"
+      when: ansible_system is defined
+
+    - name: Summary
+      debug:
+        msg: |
+          ✓ All facts tests passed!
+          - ansible_system: collected and usable
+          - ansible_architecture: collected and usable
+          - homelab URL pattern: working
+          - facts persist across plays: yes

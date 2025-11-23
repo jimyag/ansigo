@@ -39,6 +39,16 @@ func (vm *VariableManager) SetHostVar(hostname, key string, value interface{}) {
 	vm.registeredVars[hostname][key] = value
 }
 
+// SetHostVars 批量设置主机变量（用于 facts）
+func (vm *VariableManager) SetHostVars(hostname string, vars map[string]interface{}) {
+	if vm.registeredVars[hostname] == nil {
+		vm.registeredVars[hostname] = make(map[string]interface{})
+	}
+	for k, v := range vars {
+		vm.registeredVars[hostname][k] = v
+	}
+}
+
 // GetHostVar 获取主机的特定变量
 func (vm *VariableManager) GetHostVar(hostname, key string) (interface{}, bool) {
 	// 先查找 registered 变量

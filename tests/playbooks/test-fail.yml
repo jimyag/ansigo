@@ -1,0 +1,55 @@
+---
+# 测试 fail 模块
+- name: Test fail module
+  hosts: webservers
+  gather_facts: false
+  tasks:
+    # 测试基本失败
+    - name: This task should succeed
+      debug:
+        msg: "This task runs successfully"
+
+    # 测试带条件的 fail - 条件为 false，不应失败
+    - name: Conditional fail that should NOT trigger
+      fail:
+        msg: "This should not fail"
+      when: false
+
+    - name: Verify we reached here
+      debug:
+        msg: "Conditional fail was skipped as expected"
+
+    # 测试寄存器变量 + fail
+    - name: Check if a file exists
+      command: test -f /tmp/nonexistent-file
+      register: file_check
+      ignore_errors: true
+
+    - name: Fail if file does not exist (it shouldn't)
+      fail:
+        msg: "File /tmp/nonexistent-file does not exist!"
+      when: file_check.rc != 0
+
+# 这个 play 应该全部成功（因为 fail 被条件跳过）
+- name: Test fail with successful condition
+  hosts: webservers
+  gather_facts: false
+  tasks:
+    - name: Create a test file
+      command: touch /tmp/test-fail-file
+
+    - name: Check if file exists
+      command: test -f /tmp/test-fail-file
+      register: file_check2
+
+    - name: This should NOT fail because file exists
+      fail:
+        msg: "File does not exist"
+      when: file_check2.rc != 0
+
+    - name: Cleanup
+      command: rm -f /tmp/test-fail-file
+
+    - name: Final success message
+      debug:
+        msg: "All fail module tests passed!"

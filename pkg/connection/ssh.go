@@ -278,3 +278,15 @@ func shellQuote(s string) string {
 	// 简单实现：使用单引号，并转义内部的单引号
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
+
+// ExecuteCommand 执行命令并返回标准输出（用于 facts 收集）
+func (c *Connection) ExecuteCommand(cmd string) ([]byte, error) {
+	stdout, _, exitCode, err := c.Exec(cmd)
+	if err != nil {
+		return nil, err
+	}
+	if exitCode != 0 {
+		return nil, fmt.Errorf("command failed with exit code %d", exitCode)
+	}
+	return stdout, nil
+}

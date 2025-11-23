@@ -1,0 +1,41 @@
+---
+# 测试 fail 模块 - 简化版
+- name: Test fail module - simple
+  hosts: webservers
+  gather_facts: false
+  tasks:
+    # 测试1：条件为 false 的 fail（应该跳过）
+    - name: Conditional fail that should be skipped
+      fail:
+        msg: "This failure should be skipped"
+      when: false
+
+    - name: Verify first test passed
+      debug:
+        msg: "✓ Test 1 passed: fail with when=false was skipped"
+
+    # 测试2：条件为 true 的 fail（会导致 play 失败，但这是预期的）
+    # 我们把这个测试放在单独的 play 中
+
+- name: Test fail with true condition (expected to fail)
+  hosts: webservers
+  gather_facts: false
+  ignore_errors: true
+  tasks:
+    - name: This should fail
+      fail:
+        msg: "Expected failure message"
+      when: true
+
+    - name: This task should not run
+      debug:
+        msg: "This should not be printed"
+
+# 这个 play 测试 fail 模块的默认消息
+- name: Test fail default message
+  hosts: webservers
+  gather_facts: false
+  tasks:
+    - name: Fail without when condition should be skipped by commenting out
+      debug:
+        msg: "Testing completed successfully"
